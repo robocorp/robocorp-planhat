@@ -12,6 +12,7 @@ from invoke import task
 ROOT = Path(__file__).parent
 REPOSITORY_URL = "https://github.com/robocorp/robocorp-planhat/tree/master/"
 PACKAGE_NAME = "robocorp-planhat"
+IMPORT_NAME = "planhat"
 TAG_PREFIX = PACKAGE_NAME.replace(".", "-")
 DIST = ROOT / "dist"
 
@@ -90,7 +91,7 @@ def typecheck(ctx):
         "--show-column-numbers",
         "--namespace-packages",
         "--explicit-package-bases",
-        f"-p {PACKAGE_NAME}",
+        f"-p {IMPORT_NAME}",
     )
 
 
@@ -177,7 +178,7 @@ def docs(ctx):
         f"--src-base-url {REPOSITORY_URL}",
         "--overview-file README.md",
         f"--output-path {output_path}",
-        PACKAGE_NAME,
+        IMPORT_NAME,
     )
 
 
@@ -194,7 +195,7 @@ def make_release(ctx):
         sys.stderr.write(f"Not on main branch: {branch}\n")
         sys.exit(1)
 
-    current_version = importlib.import_module(PACKAGE_NAME).__version__
+    current_version = importlib.import_module(IMPORT_NAME).__version__
 
     previous_tag = get_tag(TAG_PREFIX)
     previous_version = previous_tag.split("-")[-1]
@@ -229,7 +230,7 @@ def check_tag_version(ctx):
     """
     import importlib
 
-    mod = importlib.import_module(PACKAGE_NAME)
+    mod = importlib.import_module(IMPORT_NAME)
 
     tag = get_tag(TAG_PREFIX)
     version = tag[tag.rfind("-") + 1 :]
@@ -273,6 +274,6 @@ def set_version(ctx, version):
     update_version(version, "pyproject.toml")
 
     # Update version in current project __init__.py
-    package_path = PACKAGE_NAME.split(".")
+    package_path = IMPORT_NAME.split(".")
     init_file = Path(ROOT, "src", *package_path, "__init__.py")
     update_version(version, init_file)
