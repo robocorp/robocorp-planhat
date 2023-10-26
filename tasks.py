@@ -162,6 +162,12 @@ def build(ctx):
 
 
 @task
+def publish(ctx):
+    """Publish to PyPI"""
+    poetry(ctx, "publish")
+
+
+@task
 def docs(ctx):
     """Build API documentation"""
     output_path = ROOT / "docs" / "api"
