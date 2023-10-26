@@ -5,3 +5,7 @@ This automation library is designed for use with [Robocorp's Python Automation F
 ## Installation
 
 This project should be installed via your `conda.yaml` within a Robocorp automation task package under your pip dependancies.
+
+## Experimental
+
+**WARNING**: This library is currently experimental and missing several features such as full unit tests and documentation.
