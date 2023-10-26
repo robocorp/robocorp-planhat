@@ -30,3 +30,9 @@ dist/
 # Removed old files
 /examples/
 /**/output/
+
+# Poetry virtual environment
+/.venv/
+
+# VSCode configuration
+.vscode/
