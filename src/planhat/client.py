@@ -51,6 +51,7 @@ class PlanhatClient:
             or tenant_uuid is not None
         ):
             self.authenticate(api_key, vault_secret_name, tenant_uuid)
+        self._object_cache: dict[type, types.PlanhatObjectList] = {}
 
     def authenticate(
         self,
@@ -187,6 +188,15 @@ class PlanhatClient:
             return types.PlanhatObjectList([planhat_response])
         else:
             raise ValueError(f"Unexpected response: {planhat_response}")
+
+    def _get_object_list_from_cache(
+        self, object_type: type[types.O]
+    ) -> types.PlanhatObjectList[types.O]:
+        """Gets the list of objects from the cache if available."""
+        if object_type not in self._object_cache:
+            object_list = self.get_objects(object_type)
+            self._object_cache[object_type] = object_list
+        return self._object_cache[object_type]
 
     def update_objects(self, payload: types.PlanhatObjectList):
         """Bulk upserts a list of objects to Planhat. The payload must
@@ -408,3 +418,17 @@ class PlanhatClient:
         except ValueError as e:
             raise PlanhatNotFoundError("No companies found.") from e
         return all_companies
+
+    def find_missing_objects(
+        self, objects: types.PlanhatObjectList[types.O]
+    ) -> types.PlanhatObjectList[types.O]:
+        """Finds objects missing in Planhat from the list of objects provided.
+        The object's type and the name of the ID field must be provided.
+        Returns those that are missing as a new Planhat Object List.
+        """
+        missing_objects = types.PlanhatObjectList[types.O]()
+        for obj in objects:
+            all_objects_in_planhat = self._get_object_list_from_cache(type(obj))
+            if not all_objects_in_planhat.is_obj_in_list(obj):
+                missing_objects.append(obj)
+        return missing_objects
