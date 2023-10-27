@@ -20,7 +20,7 @@ if os.getenv("LOG_SECRETS", "false").lower() == "false":
     log.add_sensitive_variable_name("api_key")
     log.add_sensitive_variable_name("tenant_uuid")
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .client import PlanhatClient as Planhat
 from . import types

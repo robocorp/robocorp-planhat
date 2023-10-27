@@ -47,7 +47,7 @@ ______________________________________________________________________
 
 ### method `authenticate`
 
-**Source:** [`client.py:55`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L55)
+**Source:** [`client.py:56`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L56)
 
 ```python
 authenticate(
@@ -65,7 +65,7 @@ ______________________________________________________________________
 
 ### method `create_object`
 
-**Source:** [`client.py:344`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L344)
+**Source:** [`client.py:354`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L354)
 
 ```python
 create_object(payload: PlanhatObject) → PlanhatObject
@@ -79,7 +79,7 @@ ______________________________________________________________________
 
 ### method `delete_planhat_object`
 
-**Source:** [`client.py:377`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L377)
+**Source:** [`client.py:387`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L387)
 
 ```python
 delete_planhat_object(payload: PlanhatObject) → Response
@@ -99,9 +99,21 @@ Deletes a Planhat object. If the object does not exist, a PlanhatNotFoundError i
 
 ______________________________________________________________________
 
+### method `find_missing_objects`
+
+**Source:** [`client.py:422`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L422)
+
+```python
+find_missing_objects(objects: PlanhatObjectList[~O]) → PlanhatObjectList[~O]
+```
+
+Finds objects missing in Planhat from the list of objects provided. The object's type and the name of the ID field must be provided. Returns those that are missing as a new Planhat Object List.
+
+______________________________________________________________________
+
 ### method `get_object_by_id`
 
-**Source:** [`client.py:323`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L323)
+**Source:** [`client.py:333`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L333)
 
 ```python
 get_object_by_id(
@@ -119,7 +131,7 @@ ______________________________________________________________________
 
 ### method `get_objects`
 
-**Source:** [`client.py:225`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L225)
+**Source:** [`client.py:235`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L235)
 
 ```python
 get_objects(
@@ -143,7 +155,7 @@ ______________________________________________________________________
 
 ### method `list_all_companies`
 
-**Source:** [`client.py:399`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L399)
+**Source:** [`client.py:409`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L409)
 
 ```python
 list_all_companies() → PlanhatObjectList[Company]
@@ -157,7 +169,7 @@ ______________________________________________________________________
 
 ### method `update_object`
 
-**Source:** [`client.py:356`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L356)
+**Source:** [`client.py:366`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L366)
 
 ```python
 update_object(payload: PlanhatObject) → PlanhatObject
@@ -179,7 +191,7 @@ ______________________________________________________________________
 
 ### method `update_objects`
 
-**Source:** [`client.py:191`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L191)
+**Source:** [`client.py:201`](https://github.com/robocorp/robocorp-planhat/tree/master/src/planhat/client.py#L201)
 
 ```python
 update_objects(payload: PlanhatObjectList)
