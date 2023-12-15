@@ -360,7 +360,9 @@ class PlanhatClient:
             dictionary). See the full API documentation for the required
             fields for each object type.
         """
-        response = self._session.post(url=payload.get_urlpath(), data=payload.encode())
+        response = self._session.post(
+            url=payload.get_type_urlpath(), data=payload.encode()
+        )
         return self._resp_as_singleton(types.PlanhatObject.from_response(response))
 
     def update_object(
