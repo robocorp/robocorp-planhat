@@ -130,6 +130,11 @@ class PlanhatObject(dict[str, Any], ABC):
         """
         return PlanhatObjectList(cls(item) for item in data)
 
+    @classmethod
+    def get_type_urlpath(self) -> str:
+        """Returns the URL path for the the object type."""
+        return f"/{self.API_NAME}"
+
     def __init__(
         self,
         data: dict | None = None,
@@ -192,11 +197,15 @@ class PlanhatObject(dict[str, Any], ABC):
             return True
         if self.source_id and other.source_id and self.source_id == other.source_id:
             return True
-        if self.external_id and other.external_id and self.external_id == other.external_id:
+        if (
+            self.external_id
+            and other.external_id
+            and self.external_id == other.external_id
+        ):
             return True
-        
+
         return False
-    
+
     def get_urlpath(self, id_type: PlanhatIdType = PlanhatIdType.PLANHAT_ID) -> str:
         """Returns the URL path for the object utilizing the provided ID type.
         Falls back to any ID type if the provided ID type is not available.
