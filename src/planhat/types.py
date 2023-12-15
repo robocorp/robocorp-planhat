@@ -188,12 +188,15 @@ class PlanhatObject(dict[str, Any], ABC):
         """
         if not isinstance(other, PlanhatObject):
             return False
-        return (
-            self.id == other.id
-            or self.source_id == other.source_id
-            or self.external_id == other.external_id
-        )
-
+        if self.id and other.id and self.id == other.id:
+            return True
+        if self.source_id and other.source_id and self.source_id == other.source_id:
+            return True
+        if self.external_id and other.external_id and self.external_id == other.external_id:
+            return True
+        
+        return False
+    
     def get_urlpath(self, id_type: PlanhatIdType = PlanhatIdType.PLANHAT_ID) -> str:
         """Returns the URL path for the object utilizing the provided ID type.
         Falls back to any ID type if the provided ID type is not available.
