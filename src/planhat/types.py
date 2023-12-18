@@ -22,7 +22,7 @@ O = TypeVar("O", bound="PlanhatObject")
 class PlanhatIdType(Enum):
     PLANHAT_ID = ""
     SOURCE_ID = "srcid-"
-    EXTERNAL_ID = "ext-"
+    EXTERNAL_ID = "extid-"
 
 
 class DateTimeEncoder(json.JSONEncoder):
