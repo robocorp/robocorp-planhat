@@ -45,12 +45,7 @@ class PlanhatClient:
         :param tenant_uuid: The Planhat tenant UUID.
         """
         self._session = None
-        if (
-            api_key is not None
-            or vault_secret_name is not None
-            or tenant_uuid is not None
-        ):
-            self.authenticate(api_key, vault_secret_name, tenant_uuid)
+        self.authenticate(api_key, vault_secret_name, tenant_uuid)
         self._object_cache: dict[type, types.PlanhatObjectList] = {}
 
     def authenticate(
@@ -70,6 +65,8 @@ class PlanhatClient:
             the key is not found, the tenant UUID is not set and analytics calls will
             fail.
         """
+        if api_key is None and vault_secret_name is None:
+            vault_secret_name = "planhat_api"
         self.session.authenticate(api_key, vault_secret_name, tenant_uuid)
 
     @property
