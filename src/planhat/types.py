@@ -1,4 +1,5 @@
 """Data types used in the Planhat client."""
+
 from collections import defaultdict
 from collections.abc import Iterator
 import datetime
@@ -612,12 +613,10 @@ class PlanhatObjectList(list[O]):
                 )
 
     @overload
-    def __getitem__(self, key: SupportsIndex) -> O:
-        ...
+    def __getitem__(self, key: SupportsIndex) -> O: ...
 
     @overload
-    def __getitem__(self, key: slice) -> "PlanhatObjectList[O]":
-        ...
+    def __getitem__(self, key: slice) -> "PlanhatObjectList[O]": ...
 
     def __getitem__(self, key: SupportsIndex | slice) -> "O | PlanhatObjectList[O]":
         """Returns a Planhat object or PlanhatObjectList."""
@@ -627,16 +626,13 @@ class PlanhatObjectList(list[O]):
             return super().__getitem__(key)
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: O) -> None:
-        ...
+    def __setitem__(self, key: SupportsIndex, value: O) -> None: ...
 
     @overload
-    def __setitem__(self, key: slice, value: "PlanhatObjectList[O]") -> None:
-        ...
+    def __setitem__(self, key: slice, value: "PlanhatObjectList[O]") -> None: ...
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: Sequence[O]) -> None:
-        ...
+    def __setitem__(self, key: SupportsIndex, value: Sequence[O]) -> None: ...
 
     def __setitem__(
         self,
@@ -673,12 +669,10 @@ class PlanhatObjectList(list[O]):
         super().append(obj)
 
     @overload
-    def extend(self, objs: "PlanhatObjectList[O]") -> None:
-        ...
+    def extend(self, objs: "PlanhatObjectList[O]") -> None: ...
 
     @overload
-    def extend(self, objs: Sequence[O]) -> None:
-        ...
+    def extend(self, objs: Sequence[O]) -> None: ...
 
     def extend(self, objs: "PlanhatObjectList[O] | Sequence[O]") -> None:
         """Extends the list with a list of Planhat objects."""
@@ -751,6 +745,17 @@ class PlanhatObjectList(list[O]):
             raise PlanhatNotFoundError(
                 f"Unable to find {self._type.__name__} with external ID {external_id}."
             )
+
+    def find_by_id_type(self, id: str, id_type: PlanhatIdType) -> O:
+        """Returns the Planhat object with the provided ID type."""
+        if id_type == PlanhatIdType.PLANHAT_ID:
+            return self.find_by_id(id)
+        elif id_type == PlanhatIdType.SOURCE_ID:
+            return self.find_by_source_id(id)
+        elif id_type == PlanhatIdType.EXTERNAL_ID:
+            return self.find_by_external_id(id)
+        else:
+            raise ValueError(f"Invalid ID type: {id_type}.")
 
     def find_by_company_id(self, company_id: str) -> "PlanhatObjectList[O]":
         """Returns the Planhat objects with the provided company ID."""

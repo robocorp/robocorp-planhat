@@ -26,6 +26,7 @@ class PlanhatClient:
         api_key: str | None = None,
         vault_secret_name: str | None = None,
         tenant_uuid: str | None = None,
+        use_caching: bool = True,
     ) -> None:
         """Initializes the Planhat class. Uses the default secret vault
         object named `planhat_api` unless you provide authentication
@@ -43,10 +44,13 @@ class PlanhatClient:
         :param api_key: The Planhat API key.
         :param vault_secret_name: The name of the secret in the vault.
         :param tenant_uuid: The Planhat tenant UUID.
+        :param use_caching: If `True`, the client will cache all objects
+            it retrieves. Defaults to `True`.
         """
         self._session = None
         self.authenticate(api_key, vault_secret_name, tenant_uuid)
-        self._object_cache: dict[type, types.PlanhatObjectList] = {}
+        self._cache: dict[type, types.PlanhatObjectList] = {}
+        self.use_caching = use_caching
 
     def authenticate(
         self,
@@ -78,6 +82,18 @@ class PlanhatClient:
         if self._session is None:
             self._session = PlanhatSession()
         return self._session
+
+    @property
+    def use_caching(self) -> bool:
+        """Returns the current caching status."""
+        return self._use_caching
+
+    @use_caching.setter
+    def use_caching(self, value: bool) -> None:
+        """Sets the caching status."""
+        self._use_caching = value
+        if not value:
+            self._cache = {}
 
     def _type_check_object_type_param(
         self, object_type: Type[types.PlanhatObject]
@@ -186,14 +202,25 @@ class PlanhatClient:
         else:
             raise ValueError(f"Unexpected response: {planhat_response}")
 
-    def _get_object_list_from_cache(
+    def _object_cache(
         self, object_type: type[types.O]
     ) -> types.PlanhatObjectList[types.O]:
         """Gets the list of objects from the cache if available."""
-        if object_type not in self._object_cache:
+        if object_type not in self._cache:
             object_list = self.get_objects(object_type)
-            self._object_cache[object_type] = object_list
-        return self._object_cache[object_type]
+            self._cache[object_type] = object_list
+        return self._cache[object_type]
+
+    def _update_objects_in_cache(
+        self, object_type: type[types.O], objects: types.PlanhatObjectList[types.O]
+    ) -> None:
+        """Updates the object list in the cache."""
+        for obj in objects:
+            try:
+                existing_obj = self._object_cache[object_type].find_by_id(obj.id)
+                existing_obj.update(obj)
+            except PlanhatNotFoundError:
+                self._object_cache[object_type].append(obj)
 
     def update_objects(self, payload: types.PlanhatObjectList):
         """Bulk upserts a list of objects to Planhat. The payload must
@@ -229,39 +256,16 @@ class PlanhatClient:
         response = self._session.put(url=payload.get_urlpath(), data=payload.encode())
         return response.json()
 
-    def get_objects(
+    def _get_objects_via_api(
         self,
         object_type: Type[types.O],
         company_ids: str | list | None = None,
         properties: str | list | None = None,
     ) -> types.PlanhatObjectList[types.O]:
-        """Gets a list of planhat objects of `object_type`.
-
-        If no objects are found, a `PlanhatNotFoundError` is raised.
-
-        You can filter the response by `company_ids`. If `company_ids` is `None`,
-        all objects of the provided `object_type` are returned up to the
-        maximum number of objects allowed by the Planhat API (2000 for most,
-        5000 for companies).
-
-        You can define the properties you'd like included using `properties`.
-        If `properties` is `None`, only the `_id` and `name` properties
-        are returned. If you want all properties, provide the string
-        `ALL` to the `properties` parameter.
-
-        :param object_type: The Planhat object type.
-        :param ids: IDs to use to filter the objects. You may provide a single ID
-            as a string or a list of IDs. If `None`, all objects are returned.
-        :param properties: Properties to be included in the return object. You may
-            provide a single property as a string or a list of properties. If `None`,
-            only the `_id` and `name` properties are returned. If you want all
-            properties, provide the string `ALL`.
+        """Gets a list of planhat objects of `object_type` using the Planhat
+        API. This method does not respect the `use_caching` setting and
+        always retrieves the objects from the API.
         """
-        self._type_check_object_type_param(object_type)
-        if company_ids is not None and isinstance(company_ids, str):
-            company_ids = [company_ids]
-        if properties is not None and isinstance(properties, str):
-            properties = [properties]
         log.debug(
             f"Getting '{object_type.__name__}' with ids '{company_ids}' "
             f"and properties '{properties}'"
@@ -324,7 +328,58 @@ class PlanhatClient:
                 f"No objects of type '{object_type.__name__}' found with the provided parameters."
             )
         log.debug(f"Found {len(full_response)} objects.")
+        if self.use_caching:
+            self._update_objects_in_cache(object_type, full_response)
         return full_response
+
+    def get_objects(
+        self,
+        object_type: Type[types.O],
+        company_ids: str | list | None = None,
+        properties: str | list | None = None,
+    ) -> types.PlanhatObjectList[types.O]:
+        """Gets a list of planhat objects of `object_type`. This keyword
+        respects the `use_caching` setting and will use the cache if
+        enabled, unless the `properties` parameter is provided.
+
+        If no objects are found, a `PlanhatNotFoundError` is raised.
+
+        You can filter the response by `company_ids`. If `company_ids` is `None`,
+        all objects of the provided `object_type` are returned up to the
+        maximum number of objects allowed by the Planhat API (2000 for most,
+        5000 for companies).
+
+        You can define the properties you'd like included using `properties`.
+        If `properties` is `None`, only the `_id` and `name` properties
+        are returned (or whatever properties are attached to the object in the
+        cache). If you want all properties, provide the string
+        `ALL` to the `properties` parameter.
+
+        :param object_type: The Planhat object type.
+        :param ids: IDs to use to filter the objects. You may provide a single ID
+            as a string or a list of IDs. If `None`, all objects are returned.
+        :param properties: Properties to be included in the return object. You may
+            provide a single property as a string or a list of properties. If `None`,
+            only the `_id` and `name` properties are returned. If you want all
+            properties, provide the string `ALL`.
+        """
+        self._type_check_object_type_param(object_type)
+        if company_ids is not None and isinstance(company_ids, str):
+            company_ids = [company_ids]
+        if properties is not None and isinstance(properties, str):
+            properties = [properties]
+        if self.use_caching and properties is None:
+            return_objs = []
+            try:
+                return_objs = self._object_cache(object_type)
+            except KeyError:
+                return_objs = self._get_objects_via_api(object_type, company_ids)
+            if object_type is types.Company:
+                return [obj for obj in return_objs if obj.id in company_ids]
+            else:
+                return [obj for obj in return_objs if obj.company_id in company_ids]
+        else:
+            return self._get_objects_via_api(object_type, company_ids, properties)
 
     # TODO: is the TypeVar needed?
     def get_object_by_id(
@@ -337,12 +392,17 @@ class PlanhatClient:
         `id`. You can provide alternate ids via the `id_type`. If no
         object is found, `PlanhatNotFoundError` is raised.
 
+        This method respects the `use_caching` setting and will use the
+        cache if enabled.
+
         :param object_type: The Planhat object type.
         :param id: The ID to use to find the object.
         :param id_type: The ID type to use. If not provided, the ID is
             used as-is.
         """
         id_to_use = self._create_id_parameter(id, id_type)
+        if self.use_caching:
+            return self._object_cache(object_type).find_by_id_type(id, id_type)
         response = self._session.get(
             url=self._build_url_from_id(object_type, id_to_use)
         )
@@ -406,9 +466,13 @@ class PlanhatClient:
         return self._session.delete(url=payload.get_urlpath())
 
     def list_all_companies(self) -> types.PlanhatObjectList[types.Company]:
-        """Lists all companies in Planhat.
+        """Lists all companies in Planhat using the lean companies endpoint,
+        which returns only the company name and ID. This method does not
+        respect the `use_caching` setting and always retrieves the objects
+        from the API.
 
-        The returned objects will only include the name and ID properties.
+        Note: this endpoint is not restricted to the usual 5000 company
+        limit.
         """
         try:
             all_companies = self._resp_as_list(
@@ -427,7 +491,7 @@ class PlanhatClient:
         """
         missing_objects = types.PlanhatObjectList[types.O]()
         for obj in objects:
-            all_objects_in_planhat = self._get_object_list_from_cache(type(obj))
+            all_objects_in_planhat = self._object_cache(type(obj))
             if not all_objects_in_planhat.is_obj_in_list(obj):
                 missing_objects.append(obj)
         return missing_objects
