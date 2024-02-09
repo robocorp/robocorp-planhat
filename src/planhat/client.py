@@ -293,7 +293,7 @@ class PlanhatClient:
             log.debug(f"Company IDs batches: {company_ids_batches}")
             full_response = types.PlanhatObjectList()
             for company_ids_batch in company_ids_batches:
-                current_response = self.get_objects(
+                current_response = self._get_objects_via_api(
                     object_type=object_type,
                     company_ids=company_ids_batch,
                     properties=properties,
