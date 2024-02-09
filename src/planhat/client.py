@@ -207,7 +207,7 @@ class PlanhatClient:
     ) -> types.PlanhatObjectList[types.O]:
         """Gets the list of objects from the cache if available."""
         if object_type not in self._cache:
-            object_list = self.get_objects(object_type)
+            object_list = self._get_objects_via_api(object_type)
             self._cache[object_type] = object_list
         return self._cache[object_type]
 
