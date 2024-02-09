@@ -202,7 +202,7 @@ class PlanhatClient:
         else:
             raise ValueError(f"Unexpected response: {planhat_response}")
 
-    def _object_cache(
+    def _get_from_cache(
         self, object_type: type[types.O]
     ) -> types.PlanhatObjectList[types.O]:
         """Gets the list of objects from the cache if available."""
@@ -217,10 +217,10 @@ class PlanhatClient:
         """Updates the object list in the cache."""
         for obj in objects:
             try:
-                existing_obj = self._object_cache[object_type].find_by_id(obj.id)
+                existing_obj = self._get_from_cache(object_type).find_by_id(obj.id)
                 existing_obj.update(obj)
             except PlanhatNotFoundError:
-                self._object_cache[object_type].append(obj)
+                self._get_from_cache(object_type).append(obj)
 
     def update_objects(self, payload: types.PlanhatObjectList):
         """Bulk upserts a list of objects to Planhat. The payload must
@@ -371,7 +371,7 @@ class PlanhatClient:
         if self.use_caching and properties is None:
             return_objs = []
             try:
-                return_objs = self._object_cache(object_type)
+                return_objs = self._get_from_cache(object_type)
             except KeyError:
                 return_objs = self._get_objects_via_api(object_type, company_ids)
             if object_type is types.Company:
@@ -402,7 +402,7 @@ class PlanhatClient:
         """
         id_to_use = self._create_id_parameter(id, id_type)
         if self.use_caching:
-            return self._object_cache(object_type).find_by_id_type(id, id_type)
+            return self._get_from_cache(object_type).find_by_id_type(id, id_type)
         response = self._session.get(
             url=self._build_url_from_id(object_type, id_to_use)
         )
@@ -491,7 +491,7 @@ class PlanhatClient:
         """
         missing_objects = types.PlanhatObjectList[types.O]()
         for obj in objects:
-            all_objects_in_planhat = self._object_cache(type(obj))
+            all_objects_in_planhat = self._get_from_cache(type(obj))
             if not all_objects_in_planhat.is_obj_in_list(obj):
                 missing_objects.append(obj)
         return missing_objects
