@@ -215,12 +215,13 @@ class PlanhatClient:
         self, object_type: type[types.O], objects: types.PlanhatObjectList[types.O]
     ) -> None:
         """Updates the object list in the cache."""
-        for obj in objects:
-            try:
-                existing_obj = self._get_from_cache(object_type).find_by_id(obj.id)
-                existing_obj.update(obj)
-            except PlanhatNotFoundError:
-                self._get_from_cache(object_type).append(obj)
+        if object_type in self._cache:
+            for obj in objects:
+                try:
+                    existing_obj = self._get_from_cache(object_type).find_by_id(obj.id)
+                    existing_obj.update(obj)
+                except PlanhatNotFoundError:
+                    self._get_from_cache(object_type).append(obj)
 
     def update_objects(self, payload: types.PlanhatObjectList):
         """Bulk upserts a list of objects to Planhat. The payload must
