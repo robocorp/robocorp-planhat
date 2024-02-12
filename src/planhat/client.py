@@ -375,7 +375,9 @@ class PlanhatClient:
                 return_objs = self._get_from_cache(object_type)
             except KeyError:
                 return_objs = self._get_objects_via_api(object_type, company_ids)
-            if object_type is types.Company:
+            if company_ids is None:
+                return return_objs
+            elif object_type is types.Company:
                 return [obj for obj in return_objs if obj.id in company_ids]
             else:
                 return [obj for obj in return_objs if obj.company_id in company_ids]

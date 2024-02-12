@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "robocorp-planhat"
-version = "0.4.8"
+version = "0.4.9"
 description = "Planhat API SDK for Python and Robocorp's Python Automation Framework"
 authors = ["Kylie M. <kylieblake@robocorp.com>"]
 license = "Apache-2.0"
