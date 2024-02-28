@@ -7,8 +7,6 @@ from planhat import Planhat, errors, types
 
 from .fixtures import planhat_client
 
-# TODO: Implement more complete unit tests
-
 
 class TestWithoutCache:
     @pytest.fixture
