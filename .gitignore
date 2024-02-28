@@ -36,3 +36,6 @@ dist/
 
 # VSCode configuration
 .vscode/
+
+coverage.xml
+htmlcov/

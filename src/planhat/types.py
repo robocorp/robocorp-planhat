@@ -4,11 +4,10 @@ from collections import defaultdict
 from collections.abc import Iterator
 import datetime
 import json
-import copy
 import logging
 
 from urllib import parse
-from abc import ABC, abstractproperty
+from abc import ABC
 from requests import Response
 from enum import Enum
 from typing import Any, Iterable, Sequence, SupportsIndex, Type, TypeVar, overload
@@ -139,16 +138,36 @@ class PlanhatObject(dict[str, Any], ABC):
     def __init__(
         self,
         data: dict | None = None,
+        id: str | None = None,
+        source_id: str | None = None,
+        external_id: str | None = None,
+        custom: dict | None = None,
     ):
         """Initializes the Planhat object using the provided dictionary.
         If you want to initialize an object from an API response, use the
         class factory method from_response() instead.
 
-        :param data: A dictionary containing the Planhat object.
+        :param data: A dictionary containing the Planhat object. If you
+            provide data, all other parameters are ignored.
+        :param id: The Planhat ID of the object.
+        :param source_id: The source ID of the object.
+        :param external_id: The external ID of the object.
+        :param custom: A dictionary containing custom fields for the object.
         """
         self._response = None
         if data is not None:
             super().__init__(data)
+        elif any([id, source_id, external_id]):
+            init_data = {}
+            if id is not None:
+                init_data["_id"] = id
+            if source_id is not None:
+                init_data["sourceId"] = source_id
+            if external_id is not None:
+                init_data["externalId"] = external_id
+            if custom is not None:
+                init_data["custom"] = custom
+            super().__init__(init_data)
         else:
             super().__init__()
 
@@ -173,20 +192,38 @@ class PlanhatObject(dict[str, Any], ABC):
         """Returns the Planhat ID of the object."""
         return self.get("_id", "")
 
+    @id.setter
+    def id(self, value: str) -> None:
+        self["_id"] = value
+
     @property
     def external_id(self) -> str:
         """Returns the external ID of the object."""
         return self.get("externalId", "")
+
+    @external_id.setter
+    def external_id(self, value: str) -> None:
+        self["externalId"] = value
 
     @property
     def source_id(self) -> str:
         """Returns the source ID of the object."""
         return self.get("sourceId", "")
 
+    @source_id.setter
+    def source_id(self, value: str) -> None:
+        self["sourceId"] = value
+
     @property
     def custom(self) -> dict:
         """Returns the custom fields of the object."""
         return self.get("custom", {})
+
+    @custom.setter
+    def custom(self, value: dict) -> None:
+        if not isinstance(value, dict):
+            raise TypeError("Custom fields must be a dictionary.")
+        self["custom"] = value
 
     def is_same_object(self, other: object) -> bool:
         """Returns whether the other object is the same Planhat object.
@@ -253,17 +290,23 @@ class PlanhatObject(dict[str, Any], ABC):
         """Return a dictionary where all `datetime` objects within the object
         are converted to ISO 8601 strings.
         """
-        # This is a neat trick from the AI, but will it really work?
         return json.loads(self._dump())
 
 
 class NamedObjectMixin(PlanhatObject, ABC):
-    """An abstract class representing objects that have a name."""
+    def __init__(self, *args, name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if name is not None:
+            self.name = name
 
     @property
     def name(self) -> str:
         """The name of the object."""
         return self.get("name", "")
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self["name"] = value
 
     def __repr__(self) -> str:
         return (
@@ -288,15 +331,36 @@ class Company(NamedObjectMixin, PlanhatObject):
 class PlanhatCompanyOwnedObject(PlanhatObject, ABC):
     """An abstract class representing objects that are owned by a company."""
 
+    def __init__(
+        self,
+        *args,
+        company_id: str | None = None,
+        company_name: str | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if company_id is not None:
+            self.company_id = company_id
+        if company_name is not None:
+            self.company_name = company_name
+
     @property
     def company_id(self) -> str:
         """The ID of the company that owns this object."""
         return self.get("companyId", self.get("cId", ""))
 
+    @company_id.setter
+    def company_id(self, value: str) -> None:
+        self["companyId"] = value
+
     @property
     def company_name(self) -> str:
         """The name of the company that owns this object."""
         return self.get("companyName", self.get("cName", ""))
+
+    @company_name.setter
+    def company_name(self, value: str) -> None:
+        self["companyName"] = value
 
 
 class Asset(PlanhatCompanyOwnedObject):
@@ -347,10 +411,19 @@ class CustomField(PlanhatObject):
     SINGULAR = "custom field"
     PLURAL = "custom fields"
 
+    def __init__(self, *args, parent: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if parent is not None:
+            self.parent = parent
+
     @property
     def parent(self) -> str:
         """The singular name of the parent model which owns this custom field"""
         return self.get("parent", "")
+
+    @parent.setter
+    def parent(self, value: str) -> None:
+        self["parent"] = value
 
 
 class Enduser(PlanhatCompanyOwnedObject):
@@ -365,10 +438,19 @@ class Enduser(PlanhatCompanyOwnedObject):
     SINGULAR = "enduser"
     PLURAL = "endusers"
 
+    def __init__(self, *args, email: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if email is not None:
+            self.email = email
+
     @property
     def email(self) -> str:
         """The email address of the enduser."""
         return self.get("email", "")
+
+    @email.setter
+    def email(self, value: str) -> None:
+        self["email"] = value
 
 
 class Invoice(PlanhatCompanyOwnedObject):
@@ -392,25 +474,60 @@ class Issue(PlanhatObject):
     SINGULAR = "issue"
     PLURAL = "issues"
 
+    def __init__(
+        self,
+        *args,
+        company_ids: list[str] | None = None,
+        company_names: list[str] | None = None,
+        enduser_ids: list[str] | None = None,
+        enduser_names: list[str] | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if company_ids is not None:
+            self.company_ids = company_ids
+        if company_names is not None:
+            self.company_names = company_names
+        if enduser_ids is not None:
+            self.enduser_ids = enduser_ids
+        if enduser_names is not None:
+            self.enduser_names = enduser_names
+
     @property
     def company_ids(self) -> list[str]:
         """The IDs of the companies that this issue is linked to."""
         return self.get("companyIds", [])
+
+    @company_ids.setter
+    def company_ids(self, value: list[str]) -> None:
+        self["companyIds"] = value
 
     @property
     def company_names(self) -> list[str]:
         """The names of the companies that this issue is linked to."""
         return self.get("companies", [])
 
+    @company_names.setter
+    def company_names(self, value: list[str]) -> None:
+        self["companies"] = value
+
     @property
     def enduser_ids(self) -> list[str]:
         """The IDs of the endusers that this issue is linked to."""
         return self.get("enduserIds", [])
 
+    @enduser_ids.setter
+    def enduser_ids(self, value: list[str]) -> None:
+        self["enduserIds"] = value
+
     @property
     def enduser_names(self) -> list[str]:
         """The names of the endusers that this issue is linked to."""
         return self.get("endusers", [])
+
+    @enduser_names.setter
+    def enduser_names(self, value: list[str]) -> None:
+        self["endusers"] = value
 
 
 class License(PlanhatCompanyOwnedObject):
@@ -443,10 +560,19 @@ class NPS(PlanhatCompanyOwnedObject):
     SINGULAR = "nps"
     PLURAL = "nps"
 
+    def __init__(self, *args, campaign_id: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if campaign_id is not None:
+            self.campaign_id = campaign_id
+
     @property
     def campaign_id(self) -> str:
         """The ID of the campaign that this NPS record is linked to."""
         return self.get("campaignId", "")
+
+    @campaign_id.setter
+    def campaign_id(self, value: str) -> None:
+        self["campaignId"] = value
 
 
 class Opportunity(PlanhatCompanyOwnedObject):
@@ -504,10 +630,19 @@ class Task(PlanhatCompanyOwnedObject):
     SINGULAR = "task"
     PLURAL = "tasks"
 
+    def __init__(self, *args, task_type: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if task_type is not None:
+            self.task_type = task_type
+
     @property
     def task_type(self) -> str:
         """The type of task that this task is."""
         return self.get("type", "")
+
+    @task_type.setter
+    def task_type(self, value: str) -> None:
+        self["type"] = value
 
 
 class Ticket(PlanhatCompanyOwnedObject):
@@ -520,10 +655,19 @@ class Ticket(PlanhatCompanyOwnedObject):
     SINGULAR = "ticket"
     PLURAL = "tickets"
 
+    def __init__(self, *args, email: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if email is not None:
+            self.email = email
+
     @property
     def email(self) -> str:
         """The email address of user who submitted the ticket."""
         return self.get("email", "")
+
+    @email.setter
+    def email(self, value: str) -> None:
+        self["email"] = value
 
 
 class User(PlanhatObject):
@@ -536,20 +680,48 @@ class User(PlanhatObject):
     SINGULAR = "user"
     PLURAL = "users"
 
+    def __init__(
+        self,
+        *args,
+        email: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if email is not None:
+            self.email = email
+        if first_name is not None:
+            self.first_name = first_name
+        if last_name is not None:
+            self.last_name = last_name
+
     @property
     def email(self) -> str:
         """The email address of the user."""
         return self.get("email", "")
+
+    @email.setter
+    def email(self, value: str) -> None:
+        self["email"] = value
 
     @property
     def first_name(self) -> str:
         """The first name of the user."""
         return self.get("firstName", "")
 
+    @first_name.setter
+    def first_name(self, value: str) -> None:
+        self["firstName"] = value
+
     @property
     def last_name(self) -> str:
         """The last name of the user."""
         return self.get("lastName", "")
+
+    @last_name.setter
+    def last_name(self, value: str) -> None:
+        self["lastName"] = value
 
 
 class Workspace(PlanhatCompanyOwnedObject):
@@ -559,10 +731,19 @@ class Workspace(PlanhatCompanyOwnedObject):
     SINGULAR = "workspace"
     PLURAL = "workspaces"
 
+    def __init__(self, *args, name: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if name is not None:
+            self.name = name
+
     @property
     def name(self) -> str:
         """The name of the workspace."""
         return self.get("name", "")
+
+    @name.setter
+    def name(self, value: str) -> None:
+        self["name"] = value
 
 
 class PlanhatObjectList(list[O]):
@@ -746,9 +927,9 @@ class PlanhatObjectList(list[O]):
                 f"Unable to find {self._type.__name__} with external ID {external_id}."
             )
 
-    def find_by_id_type(self, id: str, id_type: PlanhatIdType) -> O:
-        """Returns the Planhat object with the provided ID type."""
-        if id_type == PlanhatIdType.PLANHAT_ID:
+    def find_by_id_type(self, id: str, id_type: PlanhatIdType | None = None) -> O:
+        """Returns the Planhat object with the provided ID type."""            
+        if id_type is None or id_type == PlanhatIdType.PLANHAT_ID:
             return self.find_by_id(id)
         elif id_type == PlanhatIdType.SOURCE_ID:
             return self.find_by_source_id(id)

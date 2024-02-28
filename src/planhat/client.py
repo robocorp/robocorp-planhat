@@ -14,7 +14,7 @@ class PlanhatClient:
     For full documentation of every endpoint, refer to the
     [Planhat API documentation](https://docs.planhat.com).
 
-    This class provides session management and authentication including
+    This class proPvides session management and authentication including
     integration with the Robocorp vault as well as
     generic methods to interact with the Planhat API. These methods
     generally require you to provide the `object_type` parameter which
@@ -150,29 +150,6 @@ class PlanhatClient:
         log.debug(f"Created ID parameter: {out}")
         return out
 
-    def _create_id_parameter_from_object(self, obj: types.PlanhatObject) -> str:
-        """Creates the ID paramater for a query based on the provided
-        object. Always uses the first ID found in the following order:
-
-            - `id`
-            - `source_id`
-            - `external_id`
-
-        :param obj: The Planhat object.
-        """
-        if obj.id:
-            id = obj.id
-            id_type = types.PlanhatIdType.PLANHAT_ID
-        elif obj.source_id:
-            id = obj.source_id
-            id_type = types.PlanhatIdType.SOURCE_ID
-        elif obj.external_id:
-            id = obj.external_id
-            id_type = types.PlanhatIdType.EXTERNAL_ID
-        else:
-            raise ValueError("Object must have an id, source_id, or external_id set.")
-        return self._create_id_parameter(id, id_type)
-
     def _resp_as_singleton(
         self, planhat_response: types.PlanhatObject | types.PlanhatObjectList
     ) -> types.PlanhatObject:
@@ -223,7 +200,7 @@ class PlanhatClient:
                 except PlanhatNotFoundError:
                     self._get_from_cache(object_type).append(obj)
 
-    def update_objects(self, payload: types.PlanhatObjectList):
+    def update_objects(self, payload: types.PlanhatObjectList) -> dict | list[dict]:
         """Bulk upserts a list of objects to Planhat. The payload must
         be a list of PlanhatObjects.
 
@@ -238,7 +215,6 @@ class PlanhatClient:
         determine the object type. All objects in the payload must be
         of the same type.
 
-        :param object_type: The Planhat object type.
         :param payload: The PlanhatObjectList to upsert.
         """
         if len(payload) > 5000:
@@ -253,7 +229,7 @@ class PlanhatClient:
             response = self._bulk_upsert_one_object_batch(payload)
             return response
 
-    def _bulk_upsert_one_object_batch(self, payload: types.PlanhatObjectList):
+    def _bulk_upsert_one_object_batch(self, payload: types.PlanhatObjectList) -> dict:
         response = self._session.put(url=payload.get_urlpath(), data=payload.encode())
         return response.json()
 
@@ -324,10 +300,6 @@ class PlanhatClient:
                 full_response.extend(found_objs)
                 if response_length < limit or response_length == 0:
                     break
-        if len(full_response) == 0:
-            raise PlanhatNotFoundError(
-                f"No objects of type '{object_type.__name__}' found with the provided parameters."
-            )
         log.debug(f"Found {len(full_response)} objects.")
         if self.use_caching:
             self._update_objects_in_cache(object_type, full_response)
@@ -370,21 +342,38 @@ class PlanhatClient:
         if properties is not None and isinstance(properties, str):
             properties = [properties]
         if self.use_caching and properties is None:
-            return_objs = []
+            fetched_objects = []
             try:
-                return_objs = self._get_from_cache(object_type)
+                fetched_objects = self._get_from_cache(object_type)
             except KeyError:
-                return_objs = self._get_objects_via_api(object_type, company_ids)
+                fetched_objects = self._get_objects_via_api(object_type, company_ids)
             if company_ids is None:
-                return return_objs
+                return fetched_objects
             elif object_type is types.Company:
-                return [obj for obj in return_objs if obj.id in company_ids]
+                return_objs = [obj for obj in fetched_objects if obj.id in company_ids]
+                misses = [
+                    id
+                    for id in company_ids
+                    if id not in [obj.id for obj in return_objs]
+                ]
             else:
-                return [obj for obj in return_objs if obj.company_id in company_ids]
+                return_objs = [
+                    obj for obj in fetched_objects if obj.company_id in company_ids
+                ]
+                misses = [
+                    id
+                    for id in company_ids
+                    if id not in [obj.company_id for obj in return_objs]
+                ]
+            if len(misses) == 0:
+                return return_objs
+            else:
+                return_objs.extend(self._get_objects_via_api(object_type, misses))
+                return return_objs
+
         else:
             return self._get_objects_via_api(object_type, company_ids, properties)
 
-    # TODO: is the TypeVar needed?
     def get_object_by_id(
         self,
         object_type: Type[types.O],
@@ -403,9 +392,12 @@ class PlanhatClient:
         :param id_type: The ID type to use. If not provided, the ID is
             used as-is.
         """
-        id_to_use = self._create_id_parameter(id, id_type)
         if self.use_caching:
-            return self._get_from_cache(object_type).find_by_id_type(id, id_type)
+            try:
+                return self._get_from_cache(object_type).find_by_id_type(id, id_type)
+            except PlanhatNotFoundError:
+                pass
+        id_to_use = self._create_id_parameter(id, id_type)
         response = self._session.get(
             url=self._build_url_from_id(object_type, id_to_use)
         )
