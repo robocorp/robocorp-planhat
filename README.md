@@ -70,8 +70,8 @@ Further documentation on how to use the Robocorp Python Automation Framework can
 
 ## API Reference
 
-Information on specific classes and methods can be found in the [API Reference](/docs/api/planhat.md).
+Information on specific classes and methods can be found in the [API Reference](https://github.com/robocorp/robocorp-planhat/blob/main/docs/api/planhat.md).
 
 ## Changelog
 
-See the [CHANGELOG](/docs/CHANGELOG.md) for a history of notable changes.
+See the [CHANGELOG](https://github.com/robocorp/robocorp-planhat/blob/main/docs/CHANGELOG.md) for a history of notable changes.
