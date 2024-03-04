@@ -1,25 +1,26 @@
 """Provides Planhat session functionality."""
+
+from typing import Any, Mapping
+
 import requests
 from requests.auth import AuthBase
-from typing import Any
-
+from robocorp import log
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
-from robocorp import log
 
-from .types import PlanhatObject
 from .errors import (
-    PlanhatAuthFailedError,
     PlanhatAuthConfigurationError,
+    PlanhatAuthFailedError,
     PlanhatHTTPError,
     PlanhatNotFoundError,
     PlanhatRateLimitError,
     PlanhatServerError,
 )
+from .types import PlanhatObject
 
 STATUS_CODES_TO_RETRY = [429, 500, 504]
 BASE_PH_URL = "https://api.planhat.com"
@@ -29,6 +30,8 @@ PlanhatDataType = PlanhatObject | list[PlanhatObject]
 JsonDictType = dict[str, Any]
 JsonListType = list[JsonDictType]
 JsonType = JsonDictType | JsonListType
+ParamsType = Mapping[str, str | int]
+HeadersType = Mapping[str, str]
 
 
 class PlanhatAuth(AuthBase):
@@ -38,13 +41,30 @@ class PlanhatAuth(AuthBase):
         self.api_key = api_key
 
     def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
-        """Attaches HTTP Authorization to the given Request object."""
+        """
+        Attaches HTTP Authorization to the given Request object.
+
+        Args:
+            request: The request object to which the Authorization is to be attached.
+
+        Returns:
+            The request object with the Authorization attached.
+        """
         request.headers["Authorization"] = f"Bearer {self.api_key}"
         return request
 
 
-class PlanhatSession(requests.Session):
-    """A Planhat session."""
+class PlanhatSession:
+    """
+    A Planhat session.
+
+    This class represents a session for interacting with the Planhat API.
+
+    Implementation note: This clas mimics the requests.Session class' methods,
+    but does not directly subclass it to avoid typing issues associated
+    with Sessions' method signatures (this class accepts more narrow
+    parameter and header types than the requests.Session class' methods).
+    """
 
     def __init__(
         self,
@@ -52,25 +72,36 @@ class PlanhatSession(requests.Session):
         vault_secret_name: str | None = None,
         tenant_uuid: str | None = None,
     ):
-        """Initializes the Planhat session. If you want to use a non-default
-        secret or provide the API key directly, you can do so by providing
-        the `api_key` and `vault_secret_name` parameters, otherwise
-        the default vault secret `planhat_api` is used.
+        """
+        Initializes the Planhat session.
+
+        If you want to use a non-default secret or provide the API key directly,
+        you can do so by providing the `api_key` and `vault_secret_name` parameters,
+        otherwise the default vault secret `planhat_api` is used.
+
+        Args:
+            api_key: The Planhat API key.
+            vault_secret_name: The name of the vault secret containing the Planhat API key.
+            tenant_uuid: The Planhat tenant UUID needed to post analytics.
         """
         self._api_key = api_key
         self._tenant_uuid = tenant_uuid
         self._vault_secret_name = vault_secret_name
-        super().__init__()
+        self._session = requests.Session()
         self._prepare()
         self._api_host = BASE_PH_URL
         self._analytics_host = BASE_PH_ANALYTICS_URL
 
     def _prepare(self) -> None:
-        """Prepares the session. Raises an exception if default
+        """
+        Prepares the session. Raises an exception if default
         authentication is not configured.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
         """
         self.authenticate()
-        self.headers.update(self._create_headers())
+        self._session.headers.update(self._create_headers())
 
     def _create_headers(self) -> dict:
         """Creates the appropriate headers for a Planhat request."""
@@ -85,17 +116,23 @@ class PlanhatSession(requests.Session):
         vault_secret_name: str | None = None,
         tenant_uuid: str | None = None,
     ) -> None:
-        """Configures session authentication.
+        """
+        Configures session authentication.
 
-        :param api_key: The Planhat API key.
-        :param vault_secret_name: The name of the vault secret containing the Planhat API key.
-            If you provide an API key, this parameter is ignored. The provided vault
-            secret must have a key named `api_key`. It may also have a key names
-            `tenant_uuid` which is used for analytics calls.
-        :param tenant_uuid: The Planhat tenant UUID needed to post analytics If not
-            provided, the vault object is checked for a key named `tenant_uuid`. If
-            the key is not found, the tenant UUID is not set and analytics calls will
-            fail.
+        Args:
+            api_key: The Planhat API key.
+            vault_secret_name: The name of the vault secret containing the
+                Planhat API key. If an API key is provided, this parameter
+                is ignored. The provided vault secret must have a key named
+                `api_key`. It may also have a key named `tenant_uuid` which
+                is used for analytics calls.
+            tenant_uuid: The Planhat tenant UUID needed to post analytics.
+                If not provided, the vault object is checked for a key named
+                `tenant_uuid`. If the key is not found, the tenant UUID is
+                not set and analytics calls will fail.
+
+        Raises:
+            PlanhatAuthConfigurationError: If no Planhat vault secret name is provided.
         """
         if vault_secret_name is not None:
             self._vault_secret_name = vault_secret_name
@@ -110,22 +147,28 @@ class PlanhatSession(requests.Session):
         ):
             self._load_credentials()
         if self._api_key is not None:
-            self.auth = PlanhatAuth(self._api_key)
+            self._session.auth = PlanhatAuth(self._api_key)
         else:
-            self.auth = None
+            self._session.auth = None
 
     def _load_credentials(self) -> None:
-        """Loads credentials from saved vault secret name."""
-        # Import these only when needed to avoid missing Environment variables
-        # when importing the library.
+        """
+        Loads credentials from saved vault secret name.
+
+        Raises:
+            PlanhatAuthConfigurationError: If no Planhat vault secret name is provided.
+        """
         if self._vault_secret_name is None:
             raise PlanhatAuthConfigurationError(
                 "No Planhat vault secret name provided. Please authenticate with a "
                 "Planhat API key or provide a vault secret name."
             )
+        # Import these only when needed to avoid missing Environment variables
+        # when importing the library.
         from robocorp import vault
         from robocorp.vault import _errors as vault_errors
 
+        credentials: vault.SecretContainer | dict[str, Any] = {}
         try:
             credentials = vault.get_secret(self._vault_secret_name)
         except vault_errors.RobocorpVaultError:
@@ -133,24 +176,33 @@ class PlanhatSession(requests.Session):
                 f"Could not find vault secret {self._vault_secret_name}. "
                 f"Please provide a vault secret with a key named `api_key`."
             )
-            credentials = {}
         self._api_key = credentials.get("api_key", None)
         self._tenant_uuid = credentials.get("tenant_uuid", None)
 
     def _require_api_key(self) -> None:
-        """Raises an exception if the API key is not set."""
+        """
+        Raises an exception if the API key is not set.
+
+        Raises:
+            PlanhatAuthConfigurationError: If no Planhat API key is provided.
+        """
         if self._api_key is None:
             raise PlanhatAuthConfigurationError(
-                f"No Planhat API key provided. Please authenticate with a Planhat API key "
-                f"or provide a vault secret with a Planhat API key."
+                "No Planhat API key provided. Please authenticate with a Planhat API key "
+                "or provide a vault secret with a Planhat API key."
             )
 
     def _require_tenant_uuid(self) -> None:
-        """Raises an exception if the tenant UUID is not set."""
+        """
+        Checks if the tenant UUID is set and raises an exception if not.
+
+        Raises:
+            PlanhatAuthConfigurationError: If no Planhat tenant UUID is provided.
+        """
         if self._tenant_uuid is None:
             raise PlanhatAuthConfigurationError(
-                f"No Planhat tenant UUID provided. Please authenticate with a tenant "
-                f"UUID or provide a vault secret with a tenant UUID."
+                "No Planhat tenant UUID provided. Please authenticate with a tenant "
+                "UUID or provide a vault secret with a tenant UUID."
             )
 
     @retry(
@@ -162,23 +214,27 @@ class PlanhatSession(requests.Session):
         self,
         method: str,
         url: str,
-        params: dict | None = None,
+        params: ParamsType | None = None,
         data: Any | None = None,
-        json: JsonType | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        json: PlanhatDataType | None = None,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a request to the Planhat API.
+        """
+        Makes a request to the Planhat API.
 
-        :param method: The HTTP method to use.
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param params: The query parameters to use.
-        :param data: The data to send in the request body.
-        :param json: The JSON data to send in the request body.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            method: The HTTP method to use.
+            url: The URL to make the request to. If the URL does not start with `http`,
+                the URL is appended to the Planhat API host.
+            params: The query parameters to use. Defaults to None.
+            data: The data to send in the request body. Defaults to None.
+            json: The JSON data to send in the request body. Defaults to None.
+            headers: The headers to use. Defaults to None.
+            **kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            requests.Response: The response from the Planhat API.
         """
         self._require_api_key()
         if not url.startswith("http"):
@@ -186,7 +242,7 @@ class PlanhatSession(requests.Session):
                 url = f"/{url}"
             url = f"{self._api_host}{url}"
 
-        response = super().request(
+        response = self._session.request(
             method,
             url,
             params=params,
@@ -199,9 +255,18 @@ class PlanhatSession(requests.Session):
         return response
 
     def _handle_response(self, response: requests.Response) -> None:
-        """Handles the response from the Planhat API.
+        """
+        Handles the response from the Planhat API.
 
-        :param response: The response from the Planhat API.
+        Args:
+            response: The response from the Planhat API.
+
+        Raises:
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         if response.status_code >= 200 and response.status_code < 300:
             return
@@ -240,18 +305,30 @@ class PlanhatSession(requests.Session):
     def get(
         self,
         url: str,
-        params: dict | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        params: ParamsType | None = None,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a GET request to the Planhat API.
+        """
+        Makes a GET request to the Planhat API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param params: The query parameters to use.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat API host.
+            params: The query parameters to use.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request("GET", url, params=params, headers=headers, **kwargs)
 
@@ -260,18 +337,29 @@ class PlanhatSession(requests.Session):
         url: str,
         data: Any | None = None,
         json: PlanhatDataType | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a POST request to the Planhat API.
+        """
+        Makes a POST request to the Planhat API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param data: The data to send in the request body.
-        :param json: The JSON data to send in the request body.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat API host.
+            params: The query parameters to use.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request(
             "POST", url, data=data, json=json, headers=headers, **kwargs
@@ -282,18 +370,29 @@ class PlanhatSession(requests.Session):
         url: str,
         data: Any | None = None,
         json: PlanhatDataType | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a PUT request to the Planhat API.
+        """
+        Makes a PUT request to the Planhat API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param data: The data to send in the request body.
-        :param json: The JSON data to send in the request body.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat API host.
+            params: The query parameters to use.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request(
             "PUT", url, data=data, json=json, headers=headers, **kwargs
@@ -304,18 +403,29 @@ class PlanhatSession(requests.Session):
         url: str,
         data: Any | None = None,
         json: PlanhatDataType | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a PATCH request to the Planhat API.
+        """
+        Makes a PATCH request to the Planhat API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param data: The data to send in the request body.
-        :param json: The JSON data to send in the request body.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat API host.
+            params: The query parameters to use.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request(
             "PATCH", url, data=data, json=json, headers=headers, **kwargs
@@ -324,18 +434,30 @@ class PlanhatSession(requests.Session):
     def delete(
         self,
         url: str,
-        params: dict | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        params: ParamsType | None = None,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a DELETE request to the Planhat API.
+        """
+        Makes a DELETE request to the Planhat API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat API host.
-        :param params: The query parameters to use.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat API host.
+            params: The query parameters to use.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the API key is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request("DELETE", url, params=params, headers=headers, **kwargs)
 
@@ -344,18 +466,30 @@ class PlanhatSession(requests.Session):
         url: str,
         data: Any | None = None,
         json: JsonType | None = None,
-        headers: dict | None = None,
-        **kwargs: Any,
+        headers: HeadersType | None = None,
+        **kwargs,
     ) -> requests.Response:
-        """Makes a request to the Planhat Analytics API.
+        """
+        Makes a request to the Planhat Analytics API.
 
-        :param url: The URL to make the request to. If the URL does not start with
-            `http`, the URL is appended to the Planhat Analytics host.
-        :param data: The data to send in the request body.
-        :param json: The JSON data to send in the request body.
-        :param headers: The headers to use.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat Analytics API.
+        Args:
+            url: The URL to make the request to. If the URL does not start with
+                `http`, the URL is appended to the Planhat Analytics host.
+            data: The data to send in the request body.
+            json: The JSON data to send in the request body.
+            headers: The headers to use.
+            kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat Analytics API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the tenant UUID is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         self._require_tenant_uuid()
         if headers is None:
@@ -367,7 +501,7 @@ class PlanhatSession(requests.Session):
         if not url.startswith("http"):
             url = f"{self._analytics_host}/{url}/{self._tenant_uuid}"
 
-        response = super().request(
+        response = self._session.request(
             "POST", url, data=data, json=json, headers=headers, **kwargs
         )
         self._handle_response(response)
@@ -376,13 +510,24 @@ class PlanhatSession(requests.Session):
     def create_analytics(
         self,
         activity: JsonDictType,
-        **kwargs: Any,
+        **kwargs,
     ) -> requests.Response:
         """Creates an activity in Planhat.
 
-        :param activity: The activity to create.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            activity: The activity to create.
+            **kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the tenant UUID is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request_analytics("analytics", json=activity, **kwargs)
 
@@ -393,8 +538,19 @@ class PlanhatSession(requests.Session):
     ) -> requests.Response:
         """Creates a bulk of activities in Planhat.
 
-        :param activities: The activities to create.
-        :param kwargs: Additional keyword arguments to pass to the request.
-        :return: The response from the Planhat API.
+        Args:
+            activities: The activities to create.
+            **kwargs: Additional keyword arguments to pass to the request.
+
+        Returns:
+            The response from the Planhat API.
+
+        Raises:
+            PlanhatAuthConfigurationError: If the tenant UUID is not set.
+            PlanhatRateLimitError: If the API's rate limits are exceeded.
+            PlanhatAuthFailedError: If authentication fails or the API server returns a 403 error.
+            PlanhatNotFoundError: If the requested resource is not found.
+            PlanhatServerError: If the API server returns a 5xx error.
+            PlanhatHTTPError: If the API server returns an unspecified HTTP error.
         """
         return self._request_analytics("analytics/bulk", json=activities, **kwargs)

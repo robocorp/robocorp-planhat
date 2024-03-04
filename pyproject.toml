@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "robocorp-planhat"
-version = "0.4.9"
+version = "1.0.0"
 description = "Planhat API SDK for Python and Robocorp's Python Automation Framework"
 authors = ["Kylie M. <kylieblake@robocorp.com>"]
 license = "Apache-2.0"
@@ -29,10 +29,20 @@ lazydocs = { git = "https://github.com/robocorp/lazydocs.git" }
 tomlkit = "^0.12.1"
 semver = "^3.0.2"
 pylint = "^3.0.2"
-
-
-[tool.poetry.group.DEV.dependencies]
 responses = "^0.23.3"
+pytest-cov = "^4.1.0"
+types-requests = "^2.31.0.20240218"
+
+
+[tool.black]
+skip-string-normalization = false
+skip-magic-trailing-comma = false
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+mypy_path = "src:tests"
 
 [build-system]
 requires = ["poetry-core"]
