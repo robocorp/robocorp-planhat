@@ -20,6 +20,43 @@ class PlanhatClient:
     interact with the Planhat API. These methods generally require you
     to provide the `object_type` parameter which is a subclass of
     `PlanhatObject`.
+
+    The `PlanhatClient` class also provides caching of objects. This
+    means that if you retrieve a list of objects, they are stored in
+    memory and subsequent calls to retrieve the same objects are
+    retrieved from the cache. This can be disabled by setting the
+    `use_caching` parameter to `False`.
+
+    Note: The Planhat API has a limit of 2000 objects per request for
+    most object types. Companies are limited to 5000 objects per request.
+
+    Example:
+
+        ```python
+        from planhat import Planhat, types
+
+        # Create a Planhat client
+        # Note: this will assume vault authentication
+        client = Planhat()
+
+        # Get a list of all companies
+        companies = client.get_objects(object_type=types.Company)
+        ```
+
+    Example with custom authentication:
+
+        ```python
+        from planhat import Planhat, types
+
+        # Create a Planhat client with custom authentication
+        client = Planhat(
+            api_key="your_api_key",
+            tenant_uuid="your_tenant_uuid"
+        )
+
+        # Get a list of all companies
+        companies = client.get_objects(object_type=types.Company)
+        ```
     """
 
     def __init__(
@@ -45,7 +82,10 @@ class PlanhatClient:
 
         Args:
             api_key: The Planhat API key.
-            vault_secret_name: The name of the secret in the vault.
+            vault_secret_name: The name of the vault secret
+                containing the Planhat API key. If you provide an API key,
+                this parameter is ignored. The provided vault secret must
+                have a key named `api_key`. Defaults to `planhat_api`.
             tenant_uuid: The Planhat tenant UUID.
             use_caching: If `True`, the client will cache all objects
                 it retrieves. Defaults to `True`.
@@ -272,6 +312,10 @@ class PlanhatClient:
         determine the object type. All objects in the payload must be
         of the same type.
 
+        When updating an object, certain properties may not be updated via
+        the API, those properties should be removed or never selected when
+        retrieving the object.
+
         Args:
             payload: The PlanhatObjectList to upsert.
 
@@ -307,6 +351,16 @@ class PlanhatClient:
                 ],
                 "permissionErrors": []
             }
+
+        Example:
+
+            ```python
+            updated_objects = types.Company.from_list([
+                {"externalId": "test-002", "name": "Test Company 2"},
+                {"externalId": "test-003", "name": "Test Company 3"}
+            ])
+            response = client.update_objects(updated_objects)
+            ```
         """
         if len(payload) > 5000:
             batched_responses = []
@@ -445,6 +499,23 @@ class PlanhatClient:
         Raises:
             ValueError: If the object type is not valid.
             PlanhatNotFoundError: If no objects are found.
+
+        Example:
+
+            ```python
+            # Get all companies
+            companies = client.get_objects(object_type=types.Company)
+
+            # Get all companies with the provided IDs
+            companies = client.get_objects(object_type=types.Company, company_ids=["1", "2"])
+
+            # Get all companies with the provided IDs and properties
+            companies = client.get_objects(
+                object_type=types.Company,
+                company_ids=["1", "2"],
+                properties=["name", "industry"]
+            )
+            ```
         """
         self._type_check_object_type_param(object_type)
         if company_ids is not None and isinstance(company_ids, str):
@@ -508,6 +579,20 @@ class PlanhatClient:
         Raises:
             ValueError: If the object type is not valid.
             PlanhatNotFoundError: If no object is found.
+
+        Example:
+
+            ```python
+            # Get a company by its ID
+            company = client.get_object_by_id(object_type=types.Company, id="1")
+
+            # Get a company by its source ID
+            company = client.get_object_by_id(
+                object_type=types.Company,
+                id="1",
+                id_type=types.PlanhatIdType.SOURCE_ID,
+            )
+            ```
         """
         if self.use_caching:
             try:
@@ -533,6 +618,14 @@ class PlanhatClient:
 
         Raises:
             PlanhatBadRequestError: If the object already exists.
+
+        Example:
+
+            ```python
+            # Create a new company
+            new_company = types.Company(name="New Company")
+            created_company = client.create_object(new_company)
+            ```
         """
         response = self.session.post(
             url=payload.get_type_urlpath(), data=payload.encode()
@@ -545,6 +638,14 @@ class PlanhatClient:
     ) -> types.PlanhatObject:
         """
         Updates a Planhat object.
+
+        When updating an object, you must provide the object with the
+        updated values. The object must have one of the ID properties
+        set. They are used in the order listed and only the first one
+        found is used. These properties include `id`, `source_id`, and
+        `external_id`. Certain properties may not be updated via the
+        API, those properties should be removed or never selected when
+        retrieving the object.
 
         Args:
             payload: A PlanhatObject containing the data to update. The
@@ -561,6 +662,19 @@ class PlanhatClient:
 
         Raises:
             PlanhatNotFoundError: If the object does not exist.
+
+        Example:
+
+            ```python
+            # Update a company, select only the properties you want to update
+            company = client.get_object_by_id(
+                object_type=types.Company,
+                id="1",
+                properties=["name"],
+            )
+            company.name = "Updated Company"
+            updated_company = client.update_object(company)
+            ```
         """
         response = self.session.put(url=payload.get_urlpath(), data=payload.encode())
         return self._resp_as_singleton(types.PlanhatObject.from_response(response))
@@ -587,6 +701,14 @@ class PlanhatClient:
 
         Raises:
             PlanhatNotFoundError: If the object does not exist.
+
+        Example:
+
+            ```python
+            # Delete a company
+            company = client.get_object_by_id(object_type=types.Company, id="1")
+            client.delete_planhat_object(company)
+            ```
         """
         return self.session.delete(url=payload.get_urlpath())
 
@@ -624,6 +746,20 @@ class PlanhatClient:
 
         Returns:
             A new Planhat Object List containing the missing objects.
+
+        Example:
+
+            ```python
+            # Find missing companies
+            companies = types.Company.from_list([
+                {"externalId": "test-002", "name": "Test Company 2"},
+                {"externalId": "test-003", "name": "Test Company 3"}
+            ])
+            missing_companies = client.find_missing_objects(companies)
+
+            # You could then create the missing companies, for example
+            client.create_objects(missing_companies)
+            ```
         """
         missing_objects = types.PlanhatObjectList[types.P]()
         for obj in objects:
