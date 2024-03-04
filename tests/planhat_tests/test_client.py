@@ -1,11 +1,7 @@
-from unittest import mock
-
 import pytest
 import responses
 
 from planhat import Planhat, errors, types
-
-from .fixtures import planhat_client
 
 
 class TestWithoutCache:
@@ -23,7 +19,7 @@ class TestWithoutCache:
         ]
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0",
+            "https://api.planhat.com/companies?limit=5000&offset=0",
             json=response_json,
             status=200,
         )
@@ -43,7 +39,7 @@ class TestWithoutCache:
         response_json = {"_id": "1", "name": "Test Company 1"}
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies/1",
+            "https://api.planhat.com/companies/1",
             json=response_json,
             status=200,
         )
@@ -58,7 +54,7 @@ class TestWithoutCache:
         response_json = {"_id": "1", "name": "Test Company 1", "externalId": "1a"}
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies/extid-1a",
+            "https://api.planhat.com/companies/extid-1a",
             json=response_json,
             status=200,
         )
@@ -75,7 +71,7 @@ class TestWithoutCache:
         response_json = {"_id": "1", "name": "Test Company 1"}
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0&companyId=1",
+            "https://api.planhat.com/companies?limit=5000&offset=0&companyId=1",
             json=response_json,
             status=200,
         )
@@ -90,7 +86,7 @@ class TestWithoutCache:
     def test_company_not_found(self, planhat: Planhat):
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies/2",
+            "https://api.planhat.com/companies/2",
             status=404,
         )
 
@@ -101,7 +97,7 @@ class TestWithoutCache:
     def test_company_not_found_all(self, planhat: Planhat):
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0&companyId=2",
+            "https://api.planhat.com/companies?limit=5000&offset=0&companyId=2",
             status=404,
         )
         with pytest.raises(errors.PlanhatNotFoundError):
@@ -123,7 +119,7 @@ class TestWithCache:
         ]
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0",
+            "https://api.planhat.com/companies?limit=5000&offset=0",
             json=response_json,
             status=200,
         )
@@ -150,7 +146,7 @@ class TestWithCache:
         response_json = {"_id": "3", "name": "Test Company 3"}
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0&companyId=3",
+            "https://api.planhat.com/companies?limit=5000&offset=0&companyId=3",
             json=response_json,
             status=200,
         )
@@ -171,7 +167,7 @@ class TestWithCache:
         }
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0&companyId=2&select=name,custom",
+            "https://api.planhat.com/companies?limit=5000&offset=0&companyId=2&select=name,custom",
             json=response_json,
             status=200,
         )
@@ -190,7 +186,7 @@ class TestWithCache:
         response_json = {"_id": "4", "name": "Test Company 4"}
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies/4",
+            "https://api.planhat.com/companies/4",
             json=response_json,
             status=200,
         )
@@ -208,7 +204,7 @@ class TestWithCache:
         ]
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/companies?limit=5000&offset=0&companyId=3,4",
+            "https://api.planhat.com/companies?limit=5000&offset=0&companyId=3,4",
             json=response_json,
             status=200,
         )
@@ -236,13 +232,12 @@ class TestWithCache:
 
 
 class TestUncachedMethods:
-
     @responses.activate
     def test_update_company(self, planhat_client: Planhat):
         response_json = {"_id": "1", "name": "Test Company 1"}
         responses.add(
             responses.PUT,
-            f"https://api.planhat.com/companies/1",
+            "https://api.planhat.com/companies/1",
             json=response_json,
             status=200,
         )
@@ -272,7 +267,7 @@ class TestUncachedMethods:
         }
         responses.add(
             responses.PUT,
-            f"https://api.planhat.com/companies",
+            "https://api.planhat.com/companies",
             json=response_json,
             status=200,
         )
@@ -292,7 +287,7 @@ class TestUncachedMethods:
         response_json = {"_id": "1", "name": "Test Company 1"}
         responses.add(
             responses.POST,
-            f"https://api.planhat.com/companies",
+            "https://api.planhat.com/companies",
             json=response_json,
             status=200,
         )
@@ -308,7 +303,7 @@ class TestUncachedMethods:
         response_json = {"n": 1, "ok": 1, "deletedCount": 1}
         responses.add(
             responses.DELETE,
-            f"https://api.planhat.com/companies/1",
+            "https://api.planhat.com/companies/1",
             json=response_json,
             status=200,
         )
@@ -337,7 +332,7 @@ class TestUncachedMethods:
         ]
         responses.add(
             responses.GET,
-            f"https://api.planhat.com/leancompanies",
+            "https://api.planhat.com/leancompanies",
             json=response_json,
             status=200,
         )

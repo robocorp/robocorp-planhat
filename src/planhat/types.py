@@ -1,22 +1,23 @@
 """Data types used in the Planhat client."""
 
-from collections import defaultdict
-from collections.abc import Iterator
 import datetime
+import itertools
 import json
 import logging
-
-from urllib import parse
 from abc import ABC
-from requests import Response
+from collections import defaultdict
+from collections.abc import Iterator
 from enum import Enum
-from typing import Any, Iterable, Sequence, SupportsIndex, Type, TypeVar, overload
+from typing import Any, Iterable, Type, TypeVar, overload
+from urllib import parse
 
+from requests import Response
 from robocorp import log  # Remove once logging is integrated into log
+from typing_extensions import SupportsIndex
 
 from .errors import PlanhatNotFoundError
 
-O = TypeVar("O", bound="PlanhatObject")
+P = TypeVar("P", bound="PlanhatObject")
 
 
 class PlanhatIdType(Enum):
@@ -39,27 +40,75 @@ class DateTimeEncoder(json.JSONEncoder):
 
 
 class PlanhatObject(dict[str, Any], ABC):
-    """A base Planhat object. This is a dictionary with some additional
-    functionality. The dictionary is the JSON response from Planhat or
-    a dictionary containing the Planhat object.
+    """
+    A base Planhat object. This is a dictionary with some additional
+    functionality.
+
+    The dictionary is the JSON response from Planhat or a dictionary containing
+    the Planhat object.
+
+    The class includes several class methods to facilitate creation of objects
+    from API responses or lists of dictionaries. It also includes methods to
+    facilitate encoding the object as a JSON string for API requests.
+
+    When creating objects using dictionaries, you must use the keys that
+    Planhat uses in its API responses. For example, the key for the Planhat ID
+    is "_id". See Planhat API documentation for more information.
+
+    Example usage:
+
+        from planhat import PlanhatObject
+
+        # Create a Planhat object from a dictionary
+        data = {
+            "_id": "123",
+            "name": "Company A"
+        }
+        company = PlanhatObject(data)
+
+        # Create a Planhat object from an API response
+        response = requests.get("https://api.planhat.com/companies/123")
+        company = PlanhatObject.from_response(response)
+
+        # Create a Planhat object from a list of dictionaries
+        data = [
+            {
+                "_id": "123",
+                "name": "Company A"
+            },
+            {
+                "_id": "456",
+                "name": "Company B"
+            }
+        ]
+        companies = PlanhatObject.from_list(data)
     """
 
-    API_NAME = None
+    API_NAME: str | None = None
     """The API name for the Planhat object. Used to form the endpoint."""
-    SINGULAR = None
+    SINGULAR: str | None = None
     """The singular form of the Planhat object type."""
-    PLURAL = None
+    PLURAL: str | None = None
     """The plural form of the Planhat object type."""
 
     @classmethod
     def from_response(
-        cls: type[O],
+        cls: type[P],
         response: Response,
-    ) -> "O | PlanhatObjectList[O]":
-        """Creates a Planhat object or list of Planhat objects from a
+    ) -> "P | PlanhatObjectList[P]":
+        """
+        Creates a Planhat object or list of Planhat objects from a
         response from Planhat.
 
-        :param response: The response from Planhat.
+        Args:
+            response: The response from Planhat.
+
+        Returns:
+            A Planhat object or list of Planhat objects.
+
+        Raises:
+            TypeError: If the response from Planhat is not dictionary- or
+                list-like.
         """
         data = response.json()
         if cls is PlanhatObject:
@@ -77,12 +126,22 @@ class PlanhatObject(dict[str, Any], ABC):
             )
 
     @classmethod
-    def _extract_type_from_response(cls: type[O], response: Response) -> Type[O]:
-        """Extracts the Planhat object type from the request attached to
-        the response.
+    def _extract_type_from_response(cls: type[P], response: Response) -> Type[P]:
+        """
+        Extracts the Planhat object type from the request attached to the response.
+
+        Args:
+            response: The response from Planhat.
+
+        Returns:
+            The type of the Planhat object.
+
+        Raises:
+            ValueError: If unable to parse path from URL or find Planhat object
+                type for endpoint.
         """
 
-        def _all_subclasses(cls) -> set[type[O]]:
+        def _all_subclasses(cls) -> set[type[P]]:
             return set(cls.__subclasses__()).union(
                 [s for c in cls.__subclasses__() for s in _all_subclasses(c)]
             )
@@ -106,10 +165,18 @@ class PlanhatObject(dict[str, Any], ABC):
         raise ValueError(f"Unable to find Planhat object type for endpoint {path}.")
 
     @classmethod
-    def _from_single_response(cls: type[O], response: Response) -> O:
-        """Creates a Planhat object from a response from Planhat.
+    def _from_single_response(cls: type[P], response: Response) -> P:
+        """
+        Creates a Planhat object from a response from Planhat.
 
-        :param response: The response from Planhat.
+        Args:
+            response: The response from Planhat.
+
+        Returns:
+            A Planhat object.
+
+        Raises:
+            TypeError: If the response from Planhat is not dictionary-like.
         """
         data = response.json()
         if isinstance(data, dict):
@@ -121,12 +188,15 @@ class PlanhatObject(dict[str, Any], ABC):
 
     @classmethod
     def from_list(
-        cls: type[O],
+        cls: type[P],
         data: list[dict],
-    ) -> "PlanhatObjectList[O]":
-        """Creates a PlanhatList from a list of dictionaries.
+    ) -> "PlanhatObjectList[P]":
+        """
+        Creates a PlanhatList from a list of dictionaries.
 
-        :param data: A list of dictionaries representing Planhat objects.
+        Args:
+            data: A list of dictionaries representing Planhat objects. The
+                keys must match the Planhat API endpoint keys.
         """
         return PlanhatObjectList(cls(item) for item in data)
 
@@ -143,22 +213,24 @@ class PlanhatObject(dict[str, Any], ABC):
         external_id: str | None = None,
         custom: dict | None = None,
     ):
-        """Initializes the Planhat object using the provided dictionary.
+        """
+        Initializes the Planhat object using the provided dictionary.
         If you want to initialize an object from an API response, use the
         class factory method from_response() instead.
 
-        :param data: A dictionary containing the Planhat object. If you
-            provide data, all other parameters are ignored.
-        :param id: The Planhat ID of the object.
-        :param source_id: The source ID of the object.
-        :param external_id: The external ID of the object.
-        :param custom: A dictionary containing custom fields for the object.
+        Args:
+            data: A dictionary containing the Planhat object. If provided,
+                all other parameters are ignored.
+            id: The Planhat ID of the object.
+            source_id: The source ID of the object.
+            external_id: The external ID of the object.
+            custom: A dictionary containing custom fields for the object.
         """
-        self._response = None
+        self._response: Response | None = None
         if data is not None:
             super().__init__(data)
         elif any([id, source_id, external_id]):
-            init_data = {}
+            init_data: dict[str, Any] = {}
             if id is not None:
                 init_data["_id"] = id
             if source_id is not None:
@@ -226,8 +298,9 @@ class PlanhatObject(dict[str, Any], ABC):
         self["custom"] = value
 
     def is_same_object(self, other: object) -> bool:
-        """Returns whether the other object is the same Planhat object.
-        This is determined by comparing the IDs of the objects.
+        """
+        Returns whether the other object is the same Planhat object by
+        by comparing the IDs of the objects.
         """
         if not isinstance(other, PlanhatObject):
             return False
@@ -245,10 +318,15 @@ class PlanhatObject(dict[str, Any], ABC):
         return False
 
     def get_urlpath(self, id_type: PlanhatIdType = PlanhatIdType.PLANHAT_ID) -> str:
-        """Returns the URL path for the object utilizing the provided ID type.
+        """
+        Returns the URL path for the object utilizing the provided ID type.
         Falls back to any ID type if the provided ID type is not available.
 
-        :param id_type: The ID type to use when generating the URL path.
+        Args:
+            id_type: The ID type to use when generating the URL path.
+
+        Returns:
+            The URL path for the object.
         """
         if id_type == PlanhatIdType.PLANHAT_ID and self.id:
             return f"/{self.API_NAME}/{self.id}"
@@ -260,12 +338,16 @@ class PlanhatObject(dict[str, Any], ABC):
             return self._get_any_urlpath()
 
     def _get_any_urlpath(self) -> str:
-        """Returns the URL path for the object utilizing any ID type.
+        """
+        Returns the URL path for the object utilizing any ID type.
         Always returns an ID based on the following priority:
 
         1. Planhat ID
         2. Source ID
         3. External ID
+
+        Returns:
+            str: The URL path for the object.
         """
         if self.id:
             return self.get_urlpath(PlanhatIdType.PLANHAT_ID)
@@ -277,17 +359,19 @@ class PlanhatObject(dict[str, Any], ABC):
             raise ValueError("Unable to determine ID for object.")
 
     def _dump(self) -> str:
-        """Dumps the object as a JSON string."""
+        """Returns the object as a JSON string."""
         return json.dumps(self, cls=DateTimeEncoder, allow_nan=False)
 
     def encode(self) -> bytes:
-        """Encodes the object as a byte-like JSON string for API body
-        payloads
+        """
+        Encodes and returns  the object as a byte-like JSON string for API
+        body payloads.
         """
         return bytes(self._dump(), encoding="utf-8")
 
     def to_serializable_json(self) -> dict:
-        """Return a dictionary where all `datetime` objects within the object
+        """
+        Returns a dictionary where all `datetime` objects within the object
         are converted to ISO 8601 strings.
         """
         return json.loads(self._dump())
@@ -316,11 +400,17 @@ class NamedObjectMixin(PlanhatObject, ABC):
 
 
 class Company(NamedObjectMixin, PlanhatObject):
-    """Companies ("accounts"), are your customers. Depending on your business these might be agencies, schools, other businesses or something else. Companies can also be your previous customers and potentially future customers (prospects).
+    """
+    Class to represent Companies ("accounts"), which are your customers.
 
-    The company object is one of the most central in Planhat since most other objects relate to it, and it's frequently used to filter out other information, such as endsuers, licenses, notes etc.
+    Depending on your business these might be agencies, schools, other businesses or something else.
+    Companies can also be your previous customers and potentially future customers (prospects).
 
-    In Planhat it is possible have a hierarchical structure for the companies, meaning that they can be grouped into organizations with parents and children in a tree like structure.
+    The company object is one of the most central in Planhat since most other objects relate to it,
+    and it's frequently used to filter out other information, such as endsuers, licenses, notes etc.
+
+    In Planhat it is possible have a hierarchical structure for the companies,
+    meaning that they can be grouped into organizations with parents and children in a tree like structure.
     """
 
     API_NAME = "companies"
@@ -364,9 +454,14 @@ class PlanhatCompanyOwnedObject(PlanhatObject, ABC):
 
 
 class Asset(PlanhatCompanyOwnedObject):
-    """Assets in Planhat can represent many different things depending on your use case. It could be drones, if you're selling a drone tracking product, or it could be instances of your product in cases where a single customer can run multiple instances of your product in parallel. Assets could also represent your different products.
+    """
+    Assets in Planhat can represent many different things depending on your use case.
+    It could be drones, if you're selling a drone tracking product, or it could be instances
+    of your product in cases where a single customer can run multiple instances of your product
+    in parallel. Assets could also represent your different products.
 
-    More generally, Assets are "nested objects" for which you may want to track usage separately, but don't need to treat them as separate customers with individual contacts, conversations, etc.
+    More generally, Assets are "nested objects" for which you may want to track usage separately,
+    but don't need to treat them as separate customers with individual contacts, conversations, etc.
     """
 
     API_NAME = "assets"
@@ -375,7 +470,10 @@ class Asset(PlanhatCompanyOwnedObject):
 
 
 class Campaign(PlanhatCompanyOwnedObject):
-    """Manage campaigns you are running inside companies, e.g., to drive adoption or to deepen stakeholder relations."""
+    """
+    Manage campaigns you are running inside companies, e.g., to drive adoption
+    or to deepen stakeholder relations.
+    """
 
     API_NAME = "campaigns"
     SINGULAR = "campaign"
@@ -383,9 +481,18 @@ class Campaign(PlanhatCompanyOwnedObject):
 
 
 class Churn(PlanhatCompanyOwnedObject):
-    """Each time one of your customers churns or downgrades you can add a specific log about this. Mostly this "churn log" is added manually by the CSM from within Planhat, but there may also be times when you want to add it over API, for example if you're capturing information about downgrades and churn natively in-app in your own platform and want to send that over to Planhat.
+    """
+    Each time one of your customers churns or downgrades you can add a specific
+    log about this. Mostly this "churn log" is added manually by the CSM from
+    within Planhat, but there may also be times when you want to add it over
+    API, for example if you're capturing information about downgrades and
+    churn natively in-app in your own platform and want to send that over
+    to Planhat.
 
-    The churn logs in Planhat typically contain the reasons for the churn, the value, date etc. It's important to note though that it doesn't affect actual revenue numbers and KPIs such as churn rate, renewal rate etc, on it's own. Those calculations are entirely based on underlying license data.
+    The churn logs in Planhat typically contain the reasons for the churn,
+    the value, date etc. It's important to note though that it doesn't affect
+    actual revenue numbers and KPIs such as churn rate, renewal rate etc, on
+    it's own. Those calculations are entirely based on underlying license data.
     """
 
     API_NAME = "churn"
@@ -394,7 +501,15 @@ class Churn(PlanhatCompanyOwnedObject):
 
 
 class Conversation(PlanhatCompanyOwnedObject):
-    """Conversations can be of different types such as email, chat, support tickets and manually logged notes. You can also create your own types in Planhat to represent things such as "in person meeting", "Training" etc. The default types (email, chat, ticket, call) are reserved and should not be created over API."""
+    """
+    Represents conversations of different types.
+
+    This class represents conversations of various types such as email, chat,
+    support tickets, and manually logged notes. Custom types can also be
+    created in Planhat to represent things such as "in person meeting",
+    "Training" etc. The default types (email, chat, ticket, call) are
+    reserved and should not be created over API.
+    """
 
     API_NAME = "conversations"
     SINGULAR = "conversation"
@@ -402,9 +517,14 @@ class Conversation(PlanhatCompanyOwnedObject):
 
 
 class CustomField(PlanhatObject):
-    """Most objects in Planaht can be customized by creating your own custom fields. Which model a given custom fields belongs is indicated by the parent property.
+    """
+    Represents custom fields in Planhat.
 
-    Typically you would create the custom fields from within the Planhat app. But in some special cases you may find it more convenient to manage over API instead.
+    Most objects in Planhat can be customized by creating your own custom
+    fields. The parent property indicates which model a given custom field
+    belongs to. Typically, custom fields are created from within the Planhat
+    app. However, in some special cases, managing over API may be more
+    convenient.
     """
 
     API_NAME = "customfields"
@@ -427,11 +547,21 @@ class CustomField(PlanhatObject):
 
 
 class Enduser(PlanhatCompanyOwnedObject):
-    """An enduser represents an individual at one of your customers, typically a user of your product, a business contact or both. Endusers can automatically be created based on user tracking events, or based on conversations such as emails and tickets.
+    """
+    Represents an individual at one of your customers. This could be a user of
+    your product, a business contact or both. Endusers can be created
+    automatically based on user tracking events, or based on conversations such
+    as emails and tickets.
 
-    Often this automatic creation of contacts along with sync from an external CRM or similar is enough. But there are also situations where you may want to be 100% sure all your users exist in Planhat, and then it would make sense to create them in Planhat over api as soon as they get created in your own system.
+    Often, automatic creation of contacts along with sync from an external CRM
+    or similar is enough. But there are also situations where you may want to
+    be 100% sure all your users exist in Planhat, and then it would make sense
+    to create them in Planhat over API as soon as they get created in your own
+    system.
 
-    If companyId is not present in the payload, and the email has a domain already registered within a company, then Planhat will auto-assign the new enduser to the company using domain matching.
+    If 'companyId' is not present in the payload, and the email has a domain
+    already registered within a company, then Planhat will auto-assign the new
+    enduser to the company using domain matching.
     """
 
     API_NAME = "endusers"
@@ -454,9 +584,18 @@ class Enduser(PlanhatCompanyOwnedObject):
 
 
 class Invoice(PlanhatCompanyOwnedObject):
-    """Invoices are normally generated automatically in Planhat when a license is created or renewed, invoices can include multiple line items. Planhat will not prepare invoices that you actually can send to your customers though. They're rather meant to help anyone working with your customers to know the status of current and past invoicing.
+    """
+    Represents Invoices in Planhat.
 
-    Invoices default date fields format should be days format integer. (Days since January 1, 1970, Unix epoch)
+    Invoices are normally generated automatically in Planhat when a license is
+    created or renewed. Each invoice can include multiple line items. However,
+    Planhat does not prepare invoices that can be sent to customers. They are
+    primarily meant to help anyone working with your customers to know the
+    status of current and past invoicing.
+
+    Note:
+        The default date fields format for invoices should be in integer days
+        format (Days since January 1, 1970, Unix epoch).
     """
 
     API_NAME = "invoices"
@@ -465,9 +604,16 @@ class Invoice(PlanhatCompanyOwnedObject):
 
 
 class Issue(PlanhatObject):
-    """Issues typically represent Bugs or Feature Requests. Many of our customers fetch issues from Jira, but they can also be pushed to Planhat from other product management tools such as Product Board or Aha! You can also manage issues directly in Planhat without any external tool. Just keep in mind that the functionality is basic and mostly intended to contribute to the customer 360 view.
+    """
+    Issues typically represent Bugs or Feature Requests. Many of our customers
+    fetch issues from Jira, but they can also be pushed to Planhat from other
+    product management tools such as Product Board or Aha! You can also manage
+    issues directly in Planhat without any external tool. Just keep in mind that
+    the functionality is basic and mostly intended to contribute to the customer
+    360 view.
 
-    Issues in Planhat can link to multiple companies, to multiple endusers and to multiple conversations.
+    Issues in Planhat can link to multiple companies, to multiple endusers and
+    to multiple conversations.
     """
 
     API_NAME = "issues"
@@ -531,9 +677,19 @@ class Issue(PlanhatObject):
 
 
 class License(PlanhatCompanyOwnedObject):
-    """Licenses represent your customers' subcriptions to your service and is the base for MRR (or ARR) calculations and most revenue reports. For non recurring revenue, please see the Sale (NRR) object. There are many ways to get license data into Planhat including incomming webhooks and CRM integrations. In some case though, you just want to handle it yourself over the api, for example if the main source of license data is your own system.
+    """
+    Represents your customers' subscriptions to your service. This is the base
+    for MRR (or ARR) calculations and most revenue reports. For non-recurring
+    revenue, refer to the Sale (NRR) object. There are many ways to get license
+    data into Planhat including incoming webhooks and CRM integrations. In some
+    cases, handling it over the API is preferred, for example if the main source
+    of license data is your own system.
 
-    Licenses in Planhat can be fixed period with a defined start and end date. Or they can be non fixed period (sometimes called open-ended or evergreen). Open ended licenses initially don't have a specified end date since the customer may cancel at any time.. once the license is churned/lost also non fixed period licenses can have an end date.
+    Licenses in Planhat can be fixed period with a defined start and end date, or
+    they can be non-fixed period (sometimes called open-ended or evergreen).
+    Open-ended licenses initially don't have a specified end date since the
+    customer may cancel at any time. Once the license is churned/lost, non-fixed
+    period licenses can also have an end date.
     """
 
     API_NAME = "licenses"
@@ -542,18 +698,28 @@ class License(PlanhatCompanyOwnedObject):
 
 
 class Note(Conversation):
-    """Notes in Planhat are technically Conversations. You can create your own custom Touch Types to easily distinguish between different types of notes. You can also use custom fields to add more nuance to your Notes.
+    """
+    Notes in Planhat are technically Conversations. You can create your own
+    custom Touch Types to easily distinguish between different types of notes.
+    You can also use custom fields to add more nuance to your Notes.
 
-    It's quite common for Notes in Planhat to sync with external systems such as Salesforce, Notes can also be created via Zapier or Planhats's native incoming webhooks.
+    It's quite common for Notes in Planhat to sync with external systems such as
+    Salesforce, Notes can also be created via Zapier or Planhats's native
+    incoming webhooks.
     """
 
     pass
 
 
 class NPS(PlanhatCompanyOwnedObject):
-    """NPS records in Planhat represent the individual responses to an nps survey. Typically these are created automatically when running an nps campaign in Planhat, or in some cases imported from external NPS tools. A single enduser/contact can have multiple records if they responded to different surveys over time.
+    """
+    Represents the individual responses to an NPS survey in Planhat. These are
+    typically created automatically when running an NPS campaign in Planhat, or
+    sometimes imported from external NPS tools. A single enduser/contact can
+    have multiple records if they responded to different surveys over time.
 
-    Based on the NPS records each enduser and company in Planhat also get an nps score assigned.
+    Based on the NPS records, each enduser and company in Planhat also get an
+    NPS score assigned.
     """
 
     API_NAME = "nps"
@@ -576,9 +742,14 @@ class NPS(PlanhatCompanyOwnedObject):
 
 
 class Opportunity(PlanhatCompanyOwnedObject):
-    """Opportunities in Planhat represent a sales opportunity, whether it's selling to a new customer or more commonly a chance of expanding an existing account.
+    """
+    Represents a sales opportunity in Planhat. This could be a chance to sell to
+    a new customer or more commonly, an opportunity to expand an existing account.
 
-    Opportunities are not the sames as Licenses, but when an opportunity is closed won in Planhat, there is an optional setting to generate a licenses based on the opportunity data.
+    Note:
+        Opportunities are not the same as Licenses. However, when an opportunity
+        is closed won in Planhat, there is an optional setting to generate a
+        license based on the opportunity data.
     """
 
     API_NAME = "opportunities"
@@ -587,7 +758,10 @@ class Opportunity(PlanhatCompanyOwnedObject):
 
 
 class Objective(PlanhatCompanyOwnedObject):
-    """Being very clear and focused on your goals with customers is critical, and now you can track objectives and the health per objective.
+    """
+    Represents the objectives and their health in Planhat.
+
+    This class is critical for tracking objectives and the health per objective.
 
     Pro-tip: use your average Objective health in the Health Score!
     """
@@ -598,9 +772,17 @@ class Objective(PlanhatCompanyOwnedObject):
 
 
 class Project(PlanhatCompanyOwnedObject):
-    """Projects can represent many different real world objects with a natural start and stop date. A service provider for schools may use Projects to represent classes or courses. If you're selling a software to run sales competitions, then each competition may be a project.
+    """
+    Represents Projects in Planhat.
 
-    Using custom fields you can tailor projects to your needs, and just like Assets, usage data and time series data (metrics) can be associated with your Projetcs.
+    Projects can represent many different real world objects with a natural start
+    and stop date. For example, a service provider for schools may use Projects
+    to represent classes or courses. If you're selling a software to run sales
+    competitions, then each competition may be a project.
+
+    Using custom fields, projects can be tailored to specific needs. Just like
+    Assets, usage data and time series data (metrics) can be associated with
+    your Projects.
     """
 
     API_NAME = "projects"
@@ -609,7 +791,10 @@ class Project(PlanhatCompanyOwnedObject):
 
 
 class Sale(PlanhatCompanyOwnedObject):
-    """The Sale (NRR) model represents not recurring revenue, like an onboarding fee, or a one-off professional services project."""
+    """
+    The Sale (NRR) model represents not recurring revenue, like an onboarding
+    fee, or a one-off professional services project.
+    """
 
     API_NAME = "sales"
     SINGULAR = "sale"
@@ -617,13 +802,24 @@ class Sale(PlanhatCompanyOwnedObject):
 
 
 class Task(PlanhatCompanyOwnedObject):
-    """Tasks are the things that you plan to do in the future. It can be a simple "to-do" without any specific due date, a reminder of something to be done at a specific point in time, or even a meeting with a start and end time.
+    """
+    Represents tasks in Planhat. Tasks are future actions, which can be simple
+    "to-do" items without a specific due date, reminders for a specific time,
+    or meetings with a start and end time.
 
-    Most of the time these tasks will be automatically generated in Planhat based on rules you set up. It's also comon to have tasks as steps in a Playbook. But tasks can also be created ad-hoc just like you would in any task management app.
+    Most tasks are automatically generated in Planhat based on set rules. They
+    can also be steps in a Playbook or created ad-hoc like in any task
+    management app.
 
-    Tasks managed over the API should typically have the mainType property set to `task`, the other potential value is `event`, which indicates that it was synced to or from a calendar like Google Calendar. Though it's also possible to create tasks of type event in Planhat without syncing them back to any calendar.
+    Tasks managed over the API should typically have the mainType property set
+    to `task`. Another potential value is `event`, indicating a sync to or from
+    a calendar like Google Calendar. Tasks of type `event` can also be created in
+    Planhat without syncing them back to any calendar.
 
-    Once a task is completed it's archived and genrally not visble in Planhat anymore. Sometimes when completing a tasks, say a training session, you want to log a note summarizing how it went, this is managed automatically by Planhat when working in the Planhat app.
+    Once a task is completed, it's archived and generally not visible in
+    Planhat anymore. Sometimes, when completing a task like a training session,
+    a note summarizing how it went is logged. This is managed automatically by
+    Planhat when working in the Planhat app.
     """
 
     API_NAME = "tasks"
@@ -646,9 +842,16 @@ class Task(PlanhatCompanyOwnedObject):
 
 
 class Ticket(PlanhatCompanyOwnedObject):
-    """Tickets in Planhat are Conversations, so if you plan to send tickets to Planhat via API then you can also use that endpoint. The ticket endpoint contains a bit of convenience logic for save tickets specificially, like setting the proper type automatically.
+    """
+    Tickets in Planhat are Conversations. If you plan to send tickets to Planhat
+    via API, you can also use that endpoint. The ticket endpoint contains
+    convenience logic for saving tickets specifically, like setting the proper
+    type automatically.
 
-    Most of our customers sync tickets from an external system like Zendesk or Salesforce. In case your ticketing system isn't natively supported or you have your own system for it, please let us know and we'll be happy to discuss how to best work with this api.
+    Most customers sync tickets from an external system like Zendesk or
+    Salesforce. If your ticketing system isn't natively supported or you have
+    your own system, please let us know. We'll be happy to discuss how to best
+    work with this API.
     """
 
     API_NAME = "tickets"
@@ -671,9 +874,17 @@ class Ticket(PlanhatCompanyOwnedObject):
 
 
 class User(PlanhatObject):
-    """Users are all your team members that need access to Planhat. Users can be created in the app, using spreadsheet upload or over api. If you're using teams to group your users in Planhat you'll need to call a separate endpoint to associate your Users with the right teams.
+    """
+    Represents a User in Planhat.
 
-    If a user is flagged as inactive, they will not be able to login to Planhat and they will not get notifications, but they will be available for assigning accounts etc.
+    Users are all your team members that need access to Planhat. Users can be
+    created in the app, using spreadsheet upload or over API. If you're using
+    teams to group your users in Planhat you'll need to call a separate endpoint
+    to associate your Users with the right teams.
+
+    If a user is flagged as inactive, they will not be able to login to Planhat
+    and they will not get notifications, but they will be available for
+    assigning accounts etc.
     """
 
     API_NAME = "users"
@@ -725,7 +936,12 @@ class User(PlanhatObject):
 
 
 class Workspace(PlanhatCompanyOwnedObject):
-    """If you work with sub-instances at your customers, e.g., connecting with different departments or with different versions of your product (think like a Workspace in Slack), then this is the object to track that engagement!"""
+    """
+    If you work with sub-instances at your customers, e.g., connecting
+    with different departments or with different versions of your product
+    (think like a Workspace in Slack), then this is the object to track
+    that engagement!
+    """
 
     API_NAME = "workspaces"
     SINGULAR = "workspace"
@@ -746,125 +962,174 @@ class Workspace(PlanhatCompanyOwnedObject):
         self["name"] = value
 
 
-class PlanhatObjectList(list[O]):
+class PlanhatObjectList(list[P]):
     """A list of Planhat objects."""
 
-    def __init__(self, __iterable: Iterable[O] | None = None) -> None:
-        """Initializes the Planhat list using the provided list of Planhat
+    def __init__(self, __iterable: Iterable[P] | None = None) -> None:
+        """
+        Initializes the Planhat list using the provided list of Planhat
         objects. The type of the first object in the list is used to
         determine the type of the list.
 
-        :param data: A list of Planhat objects.
+        Args:
+            __iterable: A list of Planhat objects.
         """
         if __iterable is None:
             __iterable = []
         super().__init__(__iterable)
         if len(self) > 0:
-            self._type = type(self[0])
+            self._type: type[P] | type[PlanhatObject] = type(self[0])
         else:
             self._type = PlanhatObject
         self._validate()
-        self._id_dict = {}
-        self._source_id_dict = {}
-        self._external_id_dict = {}
-        self._company_id_dict = defaultdict(PlanhatObjectList[O])
+        self._id_dict: dict[str, P] = {}
+        self._source_id_dict: dict[str, P] = {}
+        self._external_id_dict: dict[str, P] = {}
+        self._company_id_dict: defaultdict[str, PlanhatObjectList] = defaultdict(
+            lambda: PlanhatObjectList()
+        )
         self._company_id_dict_value_len = 0
         self.logger = logging.getLogger(__name__)
 
-    def _set_type_if_not_set(
-        self, obj: "O | PlanhatObjectList[O] | Sequence[O]"
-    ) -> None:
+    def _set_type_if_not_set(self, obj: P | Iterable[P]) -> None:
         """Sets the type of the list if it has not been set yet."""
         if self._type is PlanhatObject:
             if isinstance(obj, PlanhatObject):
                 self._type = type(obj)
             elif isinstance(obj, PlanhatObjectList):
                 if len(obj) > 0:
-                    self._type = type(obj[0])
-            elif isinstance(obj, Sequence):
-                if len(obj) > 0:
-                    self._type = type(obj[0])
+                    self._type = obj._type
+            elif isinstance(obj, Iterable):
+                iterable, _ = itertools.tee(obj)
+                first_item = next(iterable, None)
+                if first_item:
+                    self._type = type(first_item)
 
     def _validate(self) -> None:
-        """Validates the list of Planhat objects."""
+        """
+        Validates the list of Planhat objects by ensuring that all objects
+        are of the same type.
+
+        Raises:
+            TypeError: If the list contains objects of different types.
+        """
         for index, obj in enumerate(self):
             if not isinstance(obj, self._type):
                 raise TypeError(
-                    f"Expected PlanhatObject, got {type(obj).__name__} instead at index {index}."
+                    f"Expected {self._type.__name__}, got {type(obj).__name__} "
+                    f"instead at index {index}."
                 )
 
     @overload
-    def __getitem__(self, key: SupportsIndex) -> O: ...
+    def __getitem__(self, key: SupportsIndex) -> P:
+        """
+        Retrieve the value associated with the given key.
+
+        Parameters:
+            key: The key to retrieve the value for.
+
+        Returns:
+            The value associated with the given key.
+
+        Raises:
+            KeyError: If the key is not found in the collection.
+        """
+        ...
 
     @overload
-    def __getitem__(self, key: slice) -> "PlanhatObjectList[O]": ...
+    def __getitem__(self, key: slice) -> "PlanhatObjectList[P]":
+        """
+        Retrieve a slice of the PlanhatObjectList.
 
-    def __getitem__(self, key: SupportsIndex | slice) -> "O | PlanhatObjectList[O]":
-        """Returns a Planhat object or PlanhatObjectList."""
+        Args:
+            key: The slice object representing the range of indices to retrieve.
+
+        Returns:
+            A new PlanhatObjectList containing the sliced elements.
+        """
+
+    def __getitem__(self, key: SupportsIndex | slice) -> "P | PlanhatObjectList[P]":
+        """
+        Returns a Planhat object or a slice of the PlanhatObjectList.
+
+        This method overrides the built-in __getitem__ method to support
+        retrieving a single Planhat object by its index or a slice of
+        Planhat objects by a range of indices.
+
+        Args:
+            key: The index or slice to retrieve the Planhat object(s) from the list.
+
+        Returns:
+            If the key is an index, returns a single Planhat object. If the
+            key is a slice, returns a new PlanhatObjectList containing the
+            sliced elements.
+
+        Raises:
+            IndexError: If the key is an index that is out of range.
+            TypeError: If the key is not an integer or a slice.
+        """
         if isinstance(key, slice):
             return PlanhatObjectList(super().__getitem__(key))
         else:
             return super().__getitem__(key)
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: O) -> None: ...
+    def __setitem__(self, key: SupportsIndex, value: P, /) -> None:
+        """
+        Set the value of an item in the list.
+
+        Parameters:
+            key: The key/index of the item to be set.
+            value: The value to be assigned to the item.
+        """
+        ...
 
     @overload
-    def __setitem__(self, key: slice, value: "PlanhatObjectList[O]") -> None: ...
+    def __setitem__(self, key: slice, value: Iterable[P], /) -> None:
+        """
+        Set the value of the specified slice of the PlanhatObjectList.
 
-    @overload
-    def __setitem__(self, key: SupportsIndex, value: Sequence[O]) -> None: ...
+        Args:
+            key: The slice specifying the range of elements to set.
+            value: The list of objects to set.
+        """
+        ...
 
     def __setitem__(
         self,
-        key: SupportsIndex | slice,
-        value: "O | PlanhatObjectList[O] | Sequence[O]",
+        key,
+        value,
+        /,
     ) -> None:
-        """Sets a Planhat object or list of Planhat objects."""
-        if len(self) == 0:
-            self._set_type_if_not_set(value)
-        if isinstance(key, slice):
-            if isinstance(value, self._type):
-                raise TypeError(
-                    f"Expected PlanhatObjectList[{self._type}] or Sequence[{self._type}], "
-                    f"got {type(value).__name__} instead."
-                )
-            super().__setitem__(key, value)
-        else:
-            if not isinstance(value, self._type):
-                raise TypeError(
-                    f"Expected {self._type}, got {type(value).__name__} instead."
-                )
-            super().__setitem__(key, value)
+        self._set_type_if_not_set(value)
+        super().__setitem__(key, value)
         self._validate()
 
-    def __iter__(self) -> Iterator[O]:
+    def __iter__(self) -> Iterator[P]:
         return super().__iter__()
 
-    def append(self, obj: O) -> None:
+    def __str__(self) -> str:
+        """Returns a string representation of the PlanhatObjectList."""
+        return f"{self.__class__.__name__}({super().__str__()})"
+
+    def __repr__(self) -> str:
+        """Returns a string representation of the PlanhatObjectList."""
+        return f"{self.__class__.__name__}({super().__repr__()})"
+
+    def append(self, obj: P) -> None:
         """Appends a Planhat object to the list."""
-        if len(self) == 0:
-            self._set_type_if_not_set(obj)
+        self._set_type_if_not_set(obj)
         if not isinstance(obj, self._type):
             raise TypeError(f"Expected {self._type}, got {type(obj).__name__} instead.")
         super().append(obj)
 
-    @overload
-    def extend(self, objs: "PlanhatObjectList[O]") -> None: ...
-
-    @overload
-    def extend(self, objs: Sequence[O]) -> None: ...
-
-    def extend(self, objs: "PlanhatObjectList[O] | Sequence[O]") -> None:
+    def extend(self, objs: Iterable[P]) -> None:
         """Extends the list with a list of Planhat objects."""
-        if len(self) == 0:
-            self._set_type_if_not_set(objs)
-        if not isinstance(objs, PlanhatObjectList):
-            objs = PlanhatObjectList(objs)
+        self._set_type_if_not_set(objs)
         super().extend(objs)
         self._validate()
 
-    def insert(self, index: SupportsIndex, obj: O) -> None:
+    def insert(self, index: SupportsIndex, obj: P) -> None:
         """Inserts a Planhat object at the provided index."""
         if not isinstance(obj, PlanhatObject):
             raise TypeError(
@@ -872,15 +1137,34 @@ class PlanhatObjectList(list[O]):
             )
         super().insert(index, obj)
 
-    def remove(self, obj: O) -> None:
-        """Removes a Planhat object from the list."""
+    def remove(self, obj: P) -> None:
+        """
+        Removes the first occurance of the provided Planhat object from the list.
+
+        Args:
+            obj: The Planhat object to remove from the list.
+
+        Raises:
+            TypeError: If the provided object is not of the expected type.
+            ValueError: If the provided object is not in the list.
+        """
         if not isinstance(obj, self._type):
             raise TypeError(f"Expected {self._type}, got {type(obj).__name__} instead.")
         super().remove(obj)
 
-    def is_obj_in_list(self, obj: O) -> bool:
-        """Returns whether the provided Planhat object is in the list
-        based on IDs."""
+    def is_obj_in_list(self, obj: P) -> bool:
+        """
+        Checks if the provided Planhat object is in the list based on IDs.
+
+        Args:
+            obj: The Planhat object to check.
+
+        Returns:
+            True if the object is in the list, False otherwise.
+
+        Raises:
+            TypeError: If the provided object is not of the expected type.
+        """
         if not isinstance(obj, self._type):
             raise TypeError(f"Expected {self._type}, got {type(obj).__name__} instead.")
         for item in self:
@@ -888,8 +1172,19 @@ class PlanhatObjectList(list[O]):
                 return True
         return False
 
-    def find_by_id(self, id: str) -> O:
-        """Returns the Planhat object with the provided ID."""
+    def find_by_id(self, id: str) -> P:
+        """
+        Retrieves the Planhat object using the provided ID.
+
+        Args:
+            id: The ID of the Planhat object to retrieve.
+
+        Returns:
+            The Planhat object with the provided ID.
+
+        Raises:
+            PlanhatNotFoundError: If no Planhat object with the provided ID is found.
+        """
         if len(self) != len(self._id_dict):
             self._id_dict = {}
         if not self._id_dict:
@@ -901,8 +1196,20 @@ class PlanhatObjectList(list[O]):
                 f"Unable to find {self._type.__name__} with ID {id}."
             )
 
-    def find_by_source_id(self, source_id: str) -> O:
-        """Returns the Planhat objects with the provided source ID."""
+    def find_by_source_id(self, source_id: str) -> P:
+        """
+        Returns the Planhat objects with the provided source ID.
+
+        Args:
+            source_id: The source ID of the Planhat object to retrieve.
+
+        Returns:
+            The Planhat object with the provided source ID.
+
+        Raises:
+            PlanhatNotFoundError: If no Planhat object with the provided source
+                ID is found.
+        """
         if len(self) != len(self._source_id_dict):
             self._source_id_dict = {}
         if not self._source_id_dict:
@@ -914,8 +1221,20 @@ class PlanhatObjectList(list[O]):
                 f"Unable to find {self._type.__name__} with source ID {source_id}."
             )
 
-    def find_by_external_id(self, external_id: str) -> O:
-        """Returns the Planhat objects with the provided external ID."""
+    def find_by_external_id(self, external_id: str) -> P:
+        """
+        Retrieves the Planhat objects using the provided external ID.
+
+        Args:
+            external_id: The external ID of the Planhat object to retrieve.
+
+        Returns:
+            The Planhat object with the provided external ID.
+
+        Raises:
+            PlanhatNotFoundError: If no Planhat object with the provided
+                external ID is found.
+        """
         if len(self) != len(self._external_id_dict):
             self._external_id_dict = {}
         if not self._external_id_dict:
@@ -927,8 +1246,21 @@ class PlanhatObjectList(list[O]):
                 f"Unable to find {self._type.__name__} with external ID {external_id}."
             )
 
-    def find_by_id_type(self, id: str, id_type: PlanhatIdType | None = None) -> O:
-        """Returns the Planhat object with the provided ID type."""            
+    def find_by_id_type(self, id: str, id_type: PlanhatIdType | None = None) -> P:
+        """
+        Returns the Planhat object based on the provided ID and ID type.
+
+        Args:
+            id: The ID of the Planhat object to retrieve.
+            id_type: The type of the ID. If None, defaults to PlanhatIdType.PLANHAT_ID.
+
+        Returns:
+            The Planhat object with the provided ID.
+
+        Raises:
+            ValueError: If an invalid ID type is provided.
+            PlanhatNotFoundError: If no Planhat object with the provided ID is found.
+        """
         if id_type is None or id_type == PlanhatIdType.PLANHAT_ID:
             return self.find_by_id(id)
         elif id_type == PlanhatIdType.SOURCE_ID:
@@ -938,21 +1270,36 @@ class PlanhatObjectList(list[O]):
         else:
             raise ValueError(f"Invalid ID type: {id_type}.")
 
-    def find_by_company_id(self, company_id: str) -> "PlanhatObjectList[O]":
-        """Returns the Planhat objects with the provided company ID."""
+    def find_by_company_id(self, company_id: str) -> "PlanhatObjectList[P]":
+        """
+        Returns the Planhat objects associated with the provided company ID.
+
+        Args:
+            company_id: The ID of the company.
+
+        Returns:
+            A list of Planhat objects associated with the given company ID.
+        """
+        if len(self) == 0:
+            raise ValueError(
+                f"Cannot find {self._type.__name__} by company ID because the list is empty."
+            )
+        type_error_msg = (
+            f"Cannot find {self._type.__name__} by company ID because it "
+            f"is not a company-owned object."
+        )
+        if not issubclass(self._type, PlanhatCompanyOwnedObject):
+            raise TypeError(type_error_msg)
         if len(self) != self._company_id_dict_value_len:
-            self._company_id_dict = defaultdict(PlanhatObjectList[O])
+            self._company_id_dict = defaultdict(lambda: PlanhatObjectList())
             self._company_id_dict_value_len = 0
         if len(self._company_id_dict) == 0:
             for item in self:
-                if isinstance(item, PlanhatCompanyOwnedObject):
+                if isinstance(item, self._type):
                     self._company_id_dict[item.company_id].append(item)
                     self._company_id_dict_value_len += 1
                 else:
-                    raise TypeError(
-                        f"Cannot find {self._type.__name__} by company ID because it "
-                        f"is not a company-owned object."
-                    )
+                    raise TypeError(type_error_msg)
             msg = f"Company ID dict: {self._company_id_dict}"
             self.logger.debug(msg)
             log.debug(msg)  # Remove once logging is integrated into log

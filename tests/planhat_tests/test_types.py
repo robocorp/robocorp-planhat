@@ -1,15 +1,17 @@
 import json
+
 import pytest
 import requests
-from planhat.types import Company, PlanhatObjectList, PlanhatObject, Enduser, Asset
+
+from planhat.types import Asset, Company, Enduser, PlanhatObject, PlanhatObjectList
 
 
 class TestPlanhatObject:
     def test_initialization(self):
         obj = PlanhatObject()
-        assert obj.id is ""
-        assert obj.source_id is ""
-        assert obj.external_id is ""
+        assert obj.id == ""
+        assert obj.source_id == ""
+        assert obj.external_id == ""
         assert obj.to_serializable_json() == {}
 
     def test_initialization_with_kwargs(self):
@@ -141,6 +143,17 @@ class TestPlanhatObjectList:
         assert len(objs) == 2
         assert all(obj.company_id == "1" for obj in objs)
 
+    def test_find_by_company_id_miss(self):
+        obj_list = PlanhatObjectList(
+            [
+                Enduser(company_id="1"),
+                Enduser(company_id="1"),
+                Enduser(company_id="2"),
+            ]
+        )
+        objs = obj_list.find_by_company_id("3")
+        assert len(objs) == 0
+
     def test_to_serializable_json(self):
         obj_list = PlanhatObjectList([PlanhatObject(), PlanhatObject()])
         json_list = obj_list.to_serializable_json()
@@ -157,10 +170,10 @@ class TestPlanhatObjectList:
 class TestCompany:
     def test_initialization(self):
         company = Company()
-        assert company.id is ""
-        assert company.source_id is ""
-        assert company.external_id is ""
-        assert company.name is ""
+        assert company.id == ""
+        assert company.source_id == ""
+        assert company.external_id == ""
+        assert company.name == ""
         assert company.to_serializable_json() == {}
 
     def test_initialization_with_kwargs(self):
@@ -180,11 +193,11 @@ class TestCompany:
 class TestAsset:
     def test_initialization(self):
         asset = Asset()
-        assert asset.id is ""
-        assert asset.source_id is ""
-        assert asset.external_id is ""
-        assert asset.company_id is ""
-        assert asset.company_name is ""
+        assert asset.id == ""
+        assert asset.source_id == ""
+        assert asset.external_id == ""
+        assert asset.company_id == ""
+        assert asset.company_name == ""
         assert asset.to_serializable_json() == {}
 
     def test_initialization_with_kwargs(self):

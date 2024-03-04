@@ -1,5 +1,3 @@
-from ast import arg
-from urllib import request
 from requests.exceptions import HTTPError
 
 

@@ -1,4 +1,3 @@
-import pytest
 from requests.models import PreparedRequest
 
 from planhat.session import PlanhatAuth
