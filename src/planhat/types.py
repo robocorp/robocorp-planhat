@@ -8,7 +8,7 @@ from abc import ABC
 from collections import defaultdict
 from collections.abc import Iterator
 from enum import Enum
-from typing import Any, Iterable, Type, TypeVar, overload
+from typing import Any, Iterable, Self, Type, TypeVar, overload
 from urllib import parse
 
 from requests import Response
@@ -17,7 +17,62 @@ from typing_extensions import SupportsIndex
 
 from .errors import PlanhatNotFoundError
 
-P = TypeVar("P", bound="PlanhatObject")
+BO = TypeVar("BO", bound="PlanhatBaseObject")
+MO = TypeVar("MO", bound="PlanhatObject")
+
+
+def _all_subclasses(cls: type[BO]) -> set[type[BO]]:
+    """Returns all subclasses of the provided class."""
+    return set(cls.__subclasses__()).union(
+        [s for c in cls.__subclasses__() for s in _all_subclasses(c)]
+    )
+
+
+def _get_type_name_from_response(response: Response) -> str:
+    """
+    Extracts the Planhat object type from the request attached to the response.
+
+    Args:
+        response: The response from Planhat.
+
+    Returns:
+        The type of the Planhat object.
+
+    Raises:
+        ValueError: If unable to parse path from URL or find Planhat object
+            type for endpoint.
+    """
+    _, _, path, _, _ = parse.urlsplit(response.request.url)
+    # The third component should reference the endpoint for the object
+    # type, because the path should look like "/companies" or "/endusers".
+    if isinstance(path, str):
+        type_name = path.split("/")[1]
+    else:
+        raise ValueError(f"Unable to parse path from URL {response.request.url}.")
+    return type_name
+
+
+def _get_type(
+    type: str, cls: type[BO] = "PlanhatBaseObject"
+) -> type["PlanhatBaseObject"]:
+    """
+    Returns the type of the Planhat object from the provided type string.
+
+    Args:
+        type: The type string to parse.
+
+    Returns:
+        The type of the Planhat object.
+    """
+    for subclass in _all_subclasses(cls):
+        if (
+            (subclass.API_NAME or "").lower() == type.lower()
+            or (subclass.PLURAL or "").lower() == type.lower()
+            or (subclass.SINGULAR or "").lower() == type.lower()
+            or subclass.__name__.lower() == type.lower()
+        ):
+            return subclass
+    raise ValueError(f"Unable to find Planhat object type for endpoint {type}.")
 
 
 class PlanhatIdType(Enum):
@@ -39,7 +94,7 @@ class DateTimeEncoder(json.JSONEncoder):
             return super().default(obj)
 
 
-class PlanhatObject(dict[str, Any], ABC):
+class PlanhatBaseObject(dict[str, Any], ABC):
     """
     A base Planhat object. This is a dictionary with some additional
     functionality.
@@ -87,15 +142,15 @@ class PlanhatObject(dict[str, Any], ABC):
     API_NAME: str | None = None
     """The API name for the Planhat object. Used to form the endpoint."""
     SINGULAR: str | None = None
-    """The singular form of the Planhat object type."""
+    """The singular form of the Planhat model type."""
     PLURAL: str | None = None
-    """The plural form of the Planhat object type."""
+    """The plural form of the Planhat model type."""
 
     @classmethod
     def from_response(
-        cls: type[P],
+        cls: type[BO],
         response: Response,
-    ) -> "P | PlanhatObjectList[P]":
+    ) -> "BO | PlanhatBaseObjectList[BO]":
         """
         Creates a Planhat object or list of Planhat objects from a
         response from Planhat.
@@ -111,7 +166,7 @@ class PlanhatObject(dict[str, Any], ABC):
                 list-like.
         """
         data = response.json()
-        if cls is PlanhatObject:
+        if cls is PlanhatBaseObject or cls is PlanhatObject:
             cls = cls._extract_type_from_response(response)
         if isinstance(data, dict):
             return cls._from_single_response(response)
@@ -126,7 +181,7 @@ class PlanhatObject(dict[str, Any], ABC):
             )
 
     @classmethod
-    def _extract_type_from_response(cls: type[P], response: Response) -> Type[P]:
+    def _extract_type_from_response(cls: type[BO], response: Response) -> Type[BO]:
         """
         Extracts the Planhat object type from the request attached to the response.
 
@@ -140,32 +195,17 @@ class PlanhatObject(dict[str, Any], ABC):
             ValueError: If unable to parse path from URL or find Planhat object
                 type for endpoint.
         """
-
-        def _all_subclasses(cls) -> set[type[P]]:
-            return set(cls.__subclasses__()).union(
-                [s for c in cls.__subclasses__() for s in _all_subclasses(c)]
+        type_name = _get_type_name_from_response(response)
+        # Look through the subclasses and match on API_NAME
+        try:
+            return _get_type(type_name, cls)
+        except ValueError:
+            raise ValueError(
+                f"Unable to find Planhat object type for endpoint {response.request.url}."
             )
 
-        _, _, path, _, _ = parse.urlsplit(response.request.url)
-        # The third component should reference the endpoint for the object
-        # type, because the path should look like "/companies" or "/endusers".
-        if isinstance(path, str):
-            type_name = path.split("/")[1]
-        else:
-            raise ValueError(f"Unable to parse path from URL {response.request.url}.")
-        # Look through the subclasses and match on API_NAME
-        for subclass in _all_subclasses(cls):
-            if (
-                subclass.API_NAME is not None
-                and subclass.API_NAME == type_name
-                or subclass.PLURAL is not None
-                and subclass.PLURAL == type_name
-            ):
-                return subclass
-        raise ValueError(f"Unable to find Planhat object type for endpoint {path}.")
-
     @classmethod
-    def _from_single_response(cls: type[P], response: Response) -> P:
+    def _from_single_response(cls: type[BO], response: Response) -> BO:
         """
         Creates a Planhat object from a response from Planhat.
 
@@ -188,17 +228,17 @@ class PlanhatObject(dict[str, Any], ABC):
 
     @classmethod
     def from_list(
-        cls: type[P],
+        cls: type[BO],
         data: list[dict],
-    ) -> "PlanhatObjectList[P]":
+    ) -> "PlanhatBaseObjectList[BO]":
         """
-        Creates a PlanhatList from a list of dictionaries.
+        Creates a Planhat list from a list of dictionaries.
 
         Args:
             data: A list of dictionaries representing Planhat objects. The
                 keys must match the Planhat API endpoint keys.
         """
-        return PlanhatObjectList(cls(item) for item in data)
+        return PlanhatBaseObjectList(cls(item) for item in data)
 
     @classmethod
     def get_type_urlpath(self) -> str:
@@ -209,12 +249,14 @@ class PlanhatObject(dict[str, Any], ABC):
         self,
         data: dict | None = None,
         id: str | None = None,
-        source_id: str | None = None,
-        external_id: str | None = None,
-        custom: dict | None = None,
     ):
         """
-        Initializes the Planhat object using the provided dictionary.
+        Initializes the Planhat object using the provided dictionary or ID.
+
+        You may initialize the object with a dictionary containing the object
+        data, or by providing the ID. If you provide a dictionary, all other
+        parameters are ignored.
+
         If you want to initialize an object from an API response, use the
         class factory method from_response() instead.
 
@@ -222,33 +264,21 @@ class PlanhatObject(dict[str, Any], ABC):
             data: A dictionary containing the Planhat object. If provided,
                 all other parameters are ignored.
             id: The Planhat ID of the object.
-            source_id: The source ID of the object.
-            external_id: The external ID of the object.
-            custom: A dictionary containing custom fields for the object.
         """
         self._response: Response | None = None
         if data is not None:
             super().__init__(data)
-        elif any([id, source_id, external_id]):
+        elif id:
             init_data: dict[str, Any] = {}
             if id is not None:
                 init_data["_id"] = id
-            if source_id is not None:
-                init_data["sourceId"] = source_id
-            if external_id is not None:
-                init_data["externalId"] = external_id
-            if custom is not None:
-                init_data["custom"] = custom
             super().__init__(init_data)
         else:
             super().__init__()
 
     def __repr__(self) -> str:
         """Returns a string representation of the Planhat object."""
-        return (
-            f"{self.__class__.__name__}"
-            f"(id={self.id}, source_id={self.source_id}, external_id={self.external_id})"
-        )
+        return f"{self.__class__.__name__}" f"(id={self.id})"
 
     def __str__(self) -> str:
         """Returns a string representation of the Planhat object."""
@@ -267,6 +297,93 @@ class PlanhatObject(dict[str, Any], ABC):
     @id.setter
     def id(self, value: str) -> None:
         self["_id"] = value
+
+    def is_same_object(self, other: object) -> bool:
+        """
+        Returns whether the other object is the same Planhat object by
+        by comparing the IDs of the objects.
+        """
+        if not isinstance(other, PlanhatObject):
+            return False
+        if self.id and other.id and self.id == other.id:
+            return True
+
+        return False
+
+    def get_base_urlpath(self) -> str:
+        """
+        Returns the URL path for the object type.
+        """
+        return f"/{self.API_NAME}"
+
+    def _dump(self) -> str:
+        """Returns the object as a JSON string."""
+        return json.dumps(self, cls=DateTimeEncoder, allow_nan=False)
+
+    def encode(self) -> bytes:
+        """
+        Encodes and returns  the object as a byte-like JSON string for API
+        body payloads.
+        """
+        return bytes(self._dump(), encoding="utf-8")
+
+    def to_serializable_json(self) -> dict:
+        """
+        Returns a dictionary where all `datetime` objects within the object
+        are converted to ISO 8601 strings.
+        """
+        return json.loads(self._dump())
+
+
+class PlanhatObject(PlanhatBaseObject, ABC):
+    """
+    A Planhat model object.
+
+    This class and it's subclasses are used to represent the different types of
+    data models in the Planhat system and REST API.
+    """
+
+    @classmethod
+    def from_list(cls: type[MO], data: list[dict]) -> "PlanhatObjectList[MO]":
+        return PlanhatObjectList(cls(item) for item in data)
+
+    def __init__(
+        self,
+        *args,
+        source_id: str | None = None,
+        external_id: str | None = None,
+        custom: dict | None = None,
+        **kwargs,
+    ):
+        """
+        Initializes the Planhat object.
+
+        You may initialize the object with a dictionary containing the object
+        data, or by providing the ID, source ID, external ID, and/or custom fields.
+        If you provide a dictionary, all other parameters are ignored.
+
+        Args:
+            data: A dictionary containing the Planhat object. If provided,
+                all other parameters are ignored.
+            id: The Planhat ID of the object.
+            source_id: The source ID of the object.
+            external_id: The external ID of the object.
+            custom: The custom fields of the object.
+        """
+        super().__init__(*args, **kwargs)
+        if source_id is not None:
+            self.source_id = source_id
+        if external_id is not None:
+            self.external_id = external_id
+        if custom is not None:
+            self.custom = custom
+
+    def __repr__(self) -> str:
+        """Returns a string representation of the Planhat object."""
+        return (
+            f"{self.__class__.__name__}"
+            f"(id={self.id}, source_id={self.source_id}, external_id={self.external_id})"
+        )
 
     @property
     def external_id(self) -> str:
@@ -329,11 +446,11 @@ class PlanhatObject(dict[str, Any], ABC):
             The URL path for the object.
         """
         if id_type == PlanhatIdType.PLANHAT_ID and self.id:
-            return f"/{self.API_NAME}/{self.id}"
+            return f"{self.get_base_urlpath()}/{self.id}"
         elif id_type == PlanhatIdType.SOURCE_ID and self.source_id:
-            return f"/{self.API_NAME}/{id_type.value}{self.source_id}"
+            return f"{self.get_base_urlpath()}/{id_type.value}{self.source_id}"
         elif id_type == PlanhatIdType.EXTERNAL_ID and self.external_id:
-            return f"/{self.API_NAME}/{id_type.value}{self.external_id}"
+            return f"{self.get_base_urlpath()}/{id_type.value}{self.external_id}"
         else:
             return self._get_any_urlpath()
 
@@ -357,24 +474,6 @@ class PlanhatObject(dict[str, Any], ABC):
             return self.get_urlpath(PlanhatIdType.EXTERNAL_ID)
         else:
             raise ValueError("Unable to determine ID for object.")
-
-    def _dump(self) -> str:
-        """Returns the object as a JSON string."""
-        return json.dumps(self, cls=DateTimeEncoder, allow_nan=False)
-
-    def encode(self) -> bytes:
-        """
-        Encodes and returns  the object as a byte-like JSON string for API
-        body payloads.
-        """
-        return bytes(self._dump(), encoding="utf-8")
-
-    def to_serializable_json(self) -> dict:
-        """
-        Returns a dictionary where all `datetime` objects within the object
-        are converted to ISO 8601 strings.
-        """
-        return json.loads(self._dump())
 
 
 class NamedObjectMixin(PlanhatObject, ABC):
@@ -962,10 +1061,10 @@ class Workspace(PlanhatCompanyOwnedObject):
         self["name"] = value
 
 
-class PlanhatObjectList(list[P]):
+class PlanhatBaseObjectList(list[BO]):
     """A list of Planhat objects."""
 
-    def __init__(self, __iterable: Iterable[P] | None = None) -> None:
+    def __init__(self, __iterable: Iterable[BO] | None = None) -> None:
         """
         Initializes the Planhat list using the provided list of Planhat
         objects. The type of the first object in the list is used to
@@ -977,33 +1076,36 @@ class PlanhatObjectList(list[P]):
         if __iterable is None:
             __iterable = []
         super().__init__(__iterable)
+        self._type = PlanhatBaseObject
         if len(self) > 0:
-            self._type: type[P] | type[PlanhatObject] = type(self[0])
-        else:
-            self._type = PlanhatObject
+            self._set_type_if_not_set(self)
         self._validate()
-        self._id_dict: dict[str, P] = {}
-        self._source_id_dict: dict[str, P] = {}
-        self._external_id_dict: dict[str, P] = {}
-        self._company_id_dict: defaultdict[str, PlanhatObjectList] = defaultdict(
-            lambda: PlanhatObjectList()
-        )
-        self._company_id_dict_value_len = 0
+        self._id_dict: dict[str, BO] = {}
         self.logger = logging.getLogger(__name__)
 
-    def _set_type_if_not_set(self, obj: P | Iterable[P]) -> None:
-        """Sets the type of the list if it has not been set yet."""
-        if self._type is PlanhatObject:
-            if isinstance(obj, PlanhatObject):
+    def _set_type_if_not_set(self, obj: BO | Iterable[BO]) -> BO | Iterable[BO]:
+        """
+        Sets the type of the list if it has not been set yet. Returns the
+        object or iterable.
+        """
+        if self._type.API_NAME is not None:
+            return obj
+        else:
+            if isinstance(obj, PlanhatBaseObject):
                 self._type = type(obj)
-            elif isinstance(obj, PlanhatObjectList):
-                if len(obj) > 0:
+                return obj
+            elif isinstance(obj, PlanhatBaseObjectList) and len(obj) > 0:
+                if obj._type.API_NAME is not None:
                     self._type = obj._type
+                else:
+                    self._type = type(obj[0])
+                return obj
             elif isinstance(obj, Iterable):
-                iterable, _ = itertools.tee(obj)
-                first_item = next(iterable, None)
+                peeker, iterable = itertools.tee(obj)
+                first_item = next(peeker, None)
                 if first_item:
                     self._type = type(first_item)
+                return iterable
 
     def _validate(self) -> None:
         """
@@ -1021,7 +1123,7 @@ class PlanhatObjectList(list[P]):
                 )
 
     @overload
-    def __getitem__(self, key: SupportsIndex) -> P:
+    def __getitem__(self, key: SupportsIndex) -> BO:
         """
         Retrieve the value associated with the given key.
 
@@ -1037,7 +1139,7 @@ class PlanhatObjectList(list[P]):
         ...
 
     @overload
-    def __getitem__(self, key: slice) -> "PlanhatObjectList[P]":
+    def __getitem__(self, key: slice) -> "PlanhatObjectList[BO]":
         """
         Retrieve a slice of the PlanhatObjectList.
 
@@ -1048,7 +1150,7 @@ class PlanhatObjectList(list[P]):
             A new PlanhatObjectList containing the sliced elements.
         """
 
-    def __getitem__(self, key: SupportsIndex | slice) -> "P | PlanhatObjectList[P]":
+    def __getitem__(self, key: SupportsIndex | slice) -> "BO | PlanhatObjectList[BO]":
         """
         Returns a Planhat object or a slice of the PlanhatObjectList.
 
@@ -1074,7 +1176,7 @@ class PlanhatObjectList(list[P]):
             return super().__getitem__(key)
 
     @overload
-    def __setitem__(self, key: SupportsIndex, value: P, /) -> None:
+    def __setitem__(self, key: SupportsIndex, value: BO, /) -> None:
         """
         Set the value of an item in the list.
 
@@ -1085,7 +1187,7 @@ class PlanhatObjectList(list[P]):
         ...
 
     @overload
-    def __setitem__(self, key: slice, value: Iterable[P], /) -> None:
+    def __setitem__(self, key: slice, value: Iterable[BO], /) -> None:
         """
         Set the value of the specified slice of the PlanhatObjectList.
 
@@ -1101,11 +1203,11 @@ class PlanhatObjectList(list[P]):
         value,
         /,
     ) -> None:
-        self._set_type_if_not_set(value)
-        super().__setitem__(key, value)
+        iter = self._set_type_if_not_set(value)
+        super().__setitem__(key, iter)
         self._validate()
 
-    def __iter__(self) -> Iterator[P]:
+    def __iter__(self) -> Iterator[BO]:
         return super().__iter__()
 
     def __str__(self) -> str:
@@ -1116,20 +1218,20 @@ class PlanhatObjectList(list[P]):
         """Returns a string representation of the PlanhatObjectList."""
         return f"{self.__class__.__name__}({super().__repr__()})"
 
-    def append(self, obj: P) -> None:
+    def append(self, obj: BO) -> None:
         """Appends a Planhat object to the list."""
         self._set_type_if_not_set(obj)
         if not isinstance(obj, self._type):
             raise TypeError(f"Expected {self._type}, got {type(obj).__name__} instead.")
         super().append(obj)
 
-    def extend(self, objs: Iterable[P]) -> None:
+    def extend(self, objs: Iterable[BO]) -> None:
         """Extends the list with a list of Planhat objects."""
-        self._set_type_if_not_set(objs)
-        super().extend(objs)
+        iter = self._set_type_if_not_set(objs)
+        super().extend(iter)
         self._validate()
 
-    def insert(self, index: SupportsIndex, obj: P) -> None:
+    def insert(self, index: SupportsIndex, obj: BO) -> None:
         """Inserts a Planhat object at the provided index."""
         if not isinstance(obj, PlanhatObject):
             raise TypeError(
@@ -1137,7 +1239,7 @@ class PlanhatObjectList(list[P]):
             )
         super().insert(index, obj)
 
-    def remove(self, obj: P) -> None:
+    def remove(self, obj: BO) -> None:
         """
         Removes the first occurance of the provided Planhat object from the list.
 
@@ -1152,7 +1254,7 @@ class PlanhatObjectList(list[P]):
             raise TypeError(f"Expected {self._type}, got {type(obj).__name__} instead.")
         super().remove(obj)
 
-    def is_obj_in_list(self, obj: P) -> bool:
+    def is_obj_in_list(self, obj: BO) -> bool:
         """
         Checks if the provided Planhat object is in the list based on IDs.
 
@@ -1172,7 +1274,7 @@ class PlanhatObjectList(list[P]):
                 return True
         return False
 
-    def find_by_id(self, id: str) -> P:
+    def find_by_id(self, id: str) -> BO:
         """
         Retrieves the Planhat object using the provided ID.
 
@@ -1196,7 +1298,102 @@ class PlanhatObjectList(list[P]):
                 f"Unable to find {self._type.__name__} with ID {id}."
             )
 
-    def find_by_source_id(self, source_id: str) -> P:
+    def _dump(self) -> str:
+        """Dumps the list as a JSON string."""
+        return json.dumps(self, cls=DateTimeEncoder, allow_nan=False)
+
+    def encode(self) -> bytes:
+        """Encodes the list as a byte-like JSON string for API body
+        payloads
+        """
+        return bytes(self._dump(), encoding="utf-8")
+
+    def to_serializable_json(self) -> list[dict]:
+        """Return a list of dictionaries where all `datetime` objects within
+        the objects are converted to ISO 8601 strings.
+        """
+        # This is a neat trick from the AI, but will it really work?
+        return json.loads(self._dump())
+
+    def get_urlpath(self) -> str:
+        """Returns the URL path for object type of the list."""
+        if self._type.API_NAME is not None:
+            return f"/{self._type.API_NAME}"
+        else:
+            raise ValueError("Unable to determine URL path for list with no set type.")
+
+
+class PlanhatListCompanyOwnedMixin(PlanhatBaseObjectList[MO]):
+    """A mixin for Planhat lists of company-owned objects."""
+
+    def __init__(self, __iterable: Iterable[MO] | None = None) -> None:
+        """
+        Initializes the Planhat list using the provided list of Planhat
+        objects. The type of the first object in the list is used to
+        determine the type of the list.
+
+        Args:
+            __iterable: A list of Planhat objects.
+        """
+        super().__init__(__iterable)
+        self._company_id_dict: defaultdict[str, PlanhatBaseObjectList] = defaultdict(
+            lambda: PlanhatBaseObjectList()
+        )
+        self._company_id_dict_value_len = 0
+
+    def find_by_company_id(self, company_id: str) -> "PlanhatBaseObjectList[MO]":
+        """
+        Returns the Planhat objects associated with the provided company ID.
+
+        Args:
+            company_id: The ID of the company.
+
+        Returns:
+            A list of Planhat objects associated with the given company ID.
+        """
+        if len(self) == 0:
+            raise ValueError(
+                f"Cannot find {self._type.__name__} by company ID because the list is empty."
+            )
+        type_error_msg = (
+            f"Cannot find {self._type.__name__} by company ID because it "
+            f"is not a company-owned object."
+        )
+        if not issubclass(self._type, PlanhatCompanyOwnedObject):
+            raise TypeError(type_error_msg)
+        if len(self) != self._company_id_dict_value_len:
+            self._company_id_dict = defaultdict(lambda: PlanhatBaseObjectList())
+            self._company_id_dict_value_len = 0
+        if len(self._company_id_dict) == 0:
+            for item in self:
+                if isinstance(item, self._type):
+                    self._company_id_dict[item.company_id].append(item)
+                    self._company_id_dict_value_len += 1
+                else:
+                    raise TypeError(type_error_msg)
+            msg = f"Company ID dict: {self._company_id_dict}"
+            self.logger.debug(msg)
+            log.debug(msg)
+        return self._company_id_dict[company_id]
+
+
+class PlanhatObjectList(PlanhatListCompanyOwnedMixin[MO], PlanhatBaseObjectList[MO]):
+    """A list of Planhat objects."""
+
+    def __init__(self, __iterable: Iterable[MO] | None = None) -> None:
+        """
+        Initializes the Planhat list using the provided list of Planhat
+        objects. The type of the first object in the list is used to
+        determine the type of the list.
+
+        Args:
+            __iterable: A list of Planhat objects.
+        """
+        super().__init__(__iterable)
+        self._source_id_dict: dict[str, MO] = {}
+        self._external_id_dict: dict[str, MO] = {}
+
+    def find_by_source_id(self, source_id: str) -> MO:
         """
         Returns the Planhat objects with the provided source ID.
 
@@ -1221,7 +1418,7 @@ class PlanhatObjectList(list[P]):
                 f"Unable to find {self._type.__name__} with source ID {source_id}."
             )
 
-    def find_by_external_id(self, external_id: str) -> P:
+    def find_by_external_id(self, external_id: str) -> MO:
         """
         Retrieves the Planhat objects using the provided external ID.
 
@@ -1246,7 +1443,7 @@ class PlanhatObjectList(list[P]):
                 f"Unable to find {self._type.__name__} with external ID {external_id}."
             )
 
-    def find_by_id_type(self, id: str, id_type: PlanhatIdType | None = None) -> P:
+    def find_by_id_type(self, id: str, id_type: PlanhatIdType | None = None) -> MO:
         """
         Returns the Planhat object based on the provided ID and ID type.
 
@@ -1270,61 +1467,231 @@ class PlanhatObjectList(list[P]):
         else:
             raise ValueError(f"Invalid ID type: {id_type}.")
 
-    def find_by_company_id(self, company_id: str) -> "PlanhatObjectList[P]":
+
+class Metric(PlanhatBaseObject):
+    """
+    Represents a metric in Planhat.
+
+    Metrics are time series data points that are associated with a specific
+    object, such as a company, enduser, asset, or project. They are used to
+    track usage, health, or other KPIs over time. Metrics are typically
+    created automatically based on user tracking events, but can also be
+    created manually or via API.
+
+    Properties of this object represent both an metric to be uploaded and
+    a metric retrieved from Planhat. Those properties marked as "cannot be set"
+    are only available when the metric is retrieved from Planhat.
+    """
+
+    API_NAME = "dimensiondata"
+    SINGULAR = "metric"
+    PLURAL = "metrics"
+
+    @classmethod
+    def from_list(cls, data: list[dict]) -> "MetricList":
+        return MetricList(cls(item) for item in data)
+
+    def __init__(
+        self,
+        *args,
+        dimension_id: str | None = None,
+        value: int | float = None,
+        model_obj: Company | Enduser | Asset | Project | None = None,
+        date: datetime.date | None = None,
+        **kwargs,
+    ):
         """
-        Returns the Planhat objects associated with the provided company ID.
+        Initializes the metric object.
 
         Args:
-            company_id: The ID of the company.
+            data: A dictionary containing the Planhat object. If provided,
+                all other parameters are ignored.
+            dimension_id: The ID of the dimension that this metric is associated with.
+            value: The value of the metric.
+            model_obj: The model object the metric relates to. If you are uploading
+                metrics to Planhat, the object must at least have an external
+                ID. The object will be populate the external ID and model
+                fields for the API.
+            date: The date of the metric.
+        """
+        super().__init__(*args, **kwargs)
+        if dimension_id is not None:
+            self.dimension_id = dimension_id
+        if value is not None:
+            self.value = value
+        self._model_obj = None
+        if model_obj is not None:
+            self._model_obj = model_obj
+        if date is not None:
+            self.date = date
+
+    @property
+    def dimension_id(self) -> str:
+        """The ID of the dimension that this metric is associated with."""
+        return self.get("dimensionId", "")
+
+    @dimension_id.setter
+    def dimension_id(self, value: str) -> None:
+        self["dimensionId"] = value
+
+    @property
+    def value(self) -> int | float:
+        """The value of the metric."""
+        return self.get("value", 0)
+
+    @value.setter
+    def value(self, value: int | float) -> None:
+        self["value"] = value
+
+    @property
+    def model_obj(self) -> Company | Enduser | Asset | Project:
+        """The model object the metric relates to. Defaults to a new Company object."""
+        if self._model_obj is None:
+            external_id = self.get("externalId", None)
+            type_name = self.get("model", None)
+            if type_name:
+                planhat_type = _get_type(type_name)
+                self._model_obj = planhat_type(external_id=external_id)
+            self._model_obj = Company(external_id=external_id)
+        return self._model_obj
+
+    @model_obj.setter
+    def model_obj(self, value: Company | Enduser | Asset | Project) -> None:
+        self._model_obj = value
+
+    @property
+    def model(self) -> str:
+        """The model of the object the metric relates to as a string. Defaults to
+        Company. Cannot be set."""
+        try:
+            return self["model"]
+        except KeyError:
+            try:
+                return self._model_obj.SINGULAR.capitalize()
+            except AttributeError:
+                return "Company"
+
+    @property
+    def external_id(self) -> str:
+        """The external ID of the object the metric relates to. Cannot be set."""
+        try:
+            return self["externalId"]
+        except KeyError:
+            try:
+                return self._model_obj.external_id
+            except AttributeError:
+                return ""
+
+    @property
+    def date(self) -> datetime.date:
+        """The date of the metric. Defaults to today's date."""
+        internal_date = self.get("date", None)
+        if internal_date is not None:
+            return datetime.datetime.fromisoformat(internal_date).date()
+        return datetime.date.today()
+
+    @date.setter
+    def date(self, value: datetime.date) -> None:
+        self["date"] = value
+
+    @property
+    def day(self) -> int:
+        """The number of days since the Unix Epoch. Cannot be set."""
+        return self.get("day", int(self.time.timestamp() / 86400))
+
+    @property
+    def company_id(self) -> str:
+        """
+        The ID of the company that this metric is associated with in Planhat.
+        Cannot be set.
+        """
+        return self.get("companyId", "")
+
+    @company_id.setter
+    def company_id(self, value: str) -> None:
+        self["companyId"] = value
+
+    @property
+    def time(self) -> datetime.datetime:
+        """The date and time of the metric. Defaults to the current date and time."""
+        internal_time = self.get("time", None)
+        if internal_time is not None:
+            return datetime.datetime.fromisoformat(internal_time)
+        return datetime.datetime.now()
+
+    @time.setter
+    def time(self, value: datetime.datetime) -> None:
+        self["time"] = value
+
+    @property
+    def timestamp(self) -> datetime.datetime | None:
+        """The Planhat recorded timestamp for the metric, cannot be set."""
+        try:
+            internal_timestamp = self.get("timestamp", {}).get("value", None)
+        except AttributeError:
+            return None
+        if internal_timestamp is not None:
+            return datetime.datetime.fromisoformat(internal_timestamp)
+        return None
+
+    @property
+    def parent_id(self) -> str:
+        """
+        The ID of the parent object that this metric is associated with in Planhat.
+        Cannot be set.
+        """
+        return self.get("parentId", "")
+
+    @property
+    def company_name(self) -> str:
+        """
+        The name of the company that this metric is associated with in Planhat.
+        Cannot be set.
+        """
+        return self.get("companyName", "")
+
+
+class MetricList(PlanhatListCompanyOwnedMixin[Metric], PlanhatBaseObjectList[Metric]):
+    """A list of Planhat metrics."""
+
+    def __init__(self, __iterable: Iterable[Metric] | None = None) -> None:
+        """
+        Initializes the Planhat list using the provided list of Planhat
+        metrics. The type of the first metric in the list is used to
+        determine the type of the list.
+
+        Args:
+            __iterable: A list of Planhat metrics.
+        """
+        self._type = Metric
+        super().__init__(__iterable)
+        self._parent_id_dict: defaultdict[str, MetricList] = defaultdict(
+            lambda: MetricList()
+        )
+        self._parent_id_dict_value_len = 0
+
+    def find_by_parent_id(self, parent_id: str) -> "MetricList":
+        """
+        Returns the Planhat metrics associated with the provided parent ID.
+
+        Args:
+            parent_id: The ID of the parent object.
 
         Returns:
-            A list of Planhat objects associated with the given company ID.
+            A list of Planhat metrics associated with the given parent ID.
         """
         if len(self) == 0:
             raise ValueError(
-                f"Cannot find {self._type.__name__} by company ID because the list is empty."
+                f"Cannot find {self._type.__name__} by parent ID because the list is empty."
             )
-        type_error_msg = (
-            f"Cannot find {self._type.__name__} by company ID because it "
-            f"is not a company-owned object."
-        )
-        if not issubclass(self._type, PlanhatCompanyOwnedObject):
-            raise TypeError(type_error_msg)
-        if len(self) != self._company_id_dict_value_len:
-            self._company_id_dict = defaultdict(lambda: PlanhatObjectList())
-            self._company_id_dict_value_len = 0
-        if len(self._company_id_dict) == 0:
+        if len(self) != self._parent_id_dict_value_len:
+            self._parent_id_dict = defaultdict(lambda: MetricList())
+            self._parent_id_dict_value_len = 0
+        if len(self._parent_id_dict) == 0:
             for item in self:
-                if isinstance(item, self._type):
-                    self._company_id_dict[item.company_id].append(item)
-                    self._company_id_dict_value_len += 1
-                else:
-                    raise TypeError(type_error_msg)
-            msg = f"Company ID dict: {self._company_id_dict}"
+                self._parent_id_dict[item.parent_id].append(item)
+                self._parent_id_dict_value_len += 1
+            msg = f"Parent ID dict: {self._parent_id_dict}"
             self.logger.debug(msg)
-            log.debug(msg)  # Remove once logging is integrated into log
-        return self._company_id_dict[company_id]
-
-    def _dump(self) -> str:
-        """Dumps the list as a JSON string."""
-        return json.dumps(self, cls=DateTimeEncoder, allow_nan=False)
-
-    def encode(self) -> bytes:
-        """Encodes the list as a byte-like JSON string for API body
-        payloads
-        """
-        return bytes(self._dump(), encoding="utf-8")
-
-    def to_serializable_json(self) -> list[dict]:
-        """Return a list of dictionaries where all `datetime` objects within
-        the objects are converted to ISO 8601 strings.
-        """
-        # This is a neat trick from the AI, but will it really work?
-        return json.loads(self._dump())
-
-    def get_urlpath(self) -> str:
-        """Returns the URL path for object type of the list."""
-        if self._type is not PlanhatObject:
-            return f"/{self._type.API_NAME}"
-        else:
-            raise ValueError("Unable to determine URL path for list with no set type.")
+            log.debug(msg)
+        return self._parent_id_dict[parent_id]

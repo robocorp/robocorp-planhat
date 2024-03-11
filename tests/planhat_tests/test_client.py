@@ -1,3 +1,5 @@
+from datetime import date
+import datetime
 import pytest
 import responses
 
@@ -364,3 +366,155 @@ class TestUncachedMethods:
 
         with pytest.raises(ValueError, match="does not have an API_NAME defined"):
             planhat_client.get_object_by_id(TestType, "1")
+
+
+class TestMetrics:
+    @responses.activate
+    def test_get_metrics(self, planhat_client: Planhat):
+        response_json = [
+            {
+                "_id": "1",
+                "dimensionId": "test-dimension-id",
+                "companyId": "1",
+                "time": "2024-02-29T00:00:00.000Z",
+                "date": "2024-02-29T00:00:00.000Z",
+                "day": 19782,
+                "value": 100,
+                "timestamp": {
+                    "value": "2024-02-29T00:00:00.000Z",
+                },
+                "model": "Company",
+                "parentId": "1",
+                "companyName": "Acme",
+            },
+            {
+                "_id": "2",
+                "dimensionId": "test-dimension-id",
+                "companyId": "1",
+                "time": "2024-02-29T00:00:00.000Z",
+                "date": "2024-02-29T00:00:00.000Z",
+                "day": 19782,
+                "value": 100,
+                "timestamp": {
+                    "value": "2024-02-29T00:00:00.000Z",
+                },
+                "model": "Asset",
+                "parentId": "1a",
+                "companyName": "Acme",
+            },
+        ]
+        responses.add(
+            responses.GET,
+            "https://api.planhat.com/dimensiondata?limit=2000&offset=0",
+            json=response_json,
+            status=200,
+        )
+
+        metrics = planhat_client.get_dimension_data()
+
+        test_datetime = datetime.datetime(
+            2024, 2, 29, 0, 0, tzinfo=datetime.timezone.utc
+        )
+        test_date = date(2024, 2, 29)
+
+        assert len(metrics) == 2
+        assert metrics[0].id == "1"
+        assert metrics[0].dimension_id == "test-dimension-id"
+        assert metrics[0].company_id == "1"
+        assert metrics[0].time == test_datetime
+        assert metrics[0].date == test_date
+        assert metrics[0].day == 19782
+        assert metrics[0].value == 100
+        assert metrics[0].timestamp == test_datetime
+        assert metrics[0].model == "Company"
+        assert metrics[0].parent_id == "1"
+        assert metrics[0].company_name == "Acme"
+        assert metrics[1].id == "2"
+        assert metrics[1].dimension_id == "test-dimension-id"
+        assert metrics[1].company_id == "1"
+        assert metrics[1].time == test_datetime
+        assert metrics[1].date == test_date
+        assert metrics[1].day == 19782
+        assert metrics[1].value == 100
+        assert metrics[1].timestamp == test_datetime
+        assert metrics[1].model == "Asset"
+        assert metrics[1].parent_id == "1a"
+        assert metrics[1].company_name == "Acme"
+
+    @responses.activate
+    def test_get_metrics_with_params(self, planhat_client: Planhat):
+        response_json = [
+            {
+                "_id": "1",
+                "dimensionId": "test-dimension-id-2",
+                "companyId": "1",
+                "time": "2024-01-10T00:00:00.000Z",
+                "date": "2024-01-10T00:00:00.000Z",
+                "day": 19732,
+                "value": 100,
+                "timestamp": {
+                    "value": "2024-01-10T00:00:00.000Z",
+                },
+                "model": "Company",
+                "parentId": "1",
+                "companyName": "Acme",
+            },
+            {
+                "_id": "2",
+                "dimensionId": "test-dimension-id-2",
+                "companyId": "1",
+                "time": "2024-01-10T00:00:00.000Z",
+                "date": "2024-01-10T00:00:00.000Z",
+                "day": 19732,
+                "value": 100,
+                "timestamp": {
+                    "value": "2024-01-10T00:00:00.000Z",
+                },
+                "model": "Asset",
+                "parentId": "1a",
+                "companyName": "Acme",
+            },
+        ]
+        responses.add(
+            responses.GET,
+            "https://api.planhat.com/dimensiondata?limit=2000&offset=0&cId=1&"
+            "dimid=test-dimension-id-2&from=19732&to=19732",
+            json=response_json,
+            status=200,
+        )
+
+        metrics = planhat_client.get_dimension_data(
+            "1",
+            "test-dimension-id-2",
+            date(2024, 1, 10),
+            date(2024, 1, 10),
+        )
+
+        test_datetime = datetime.datetime(
+            2024, 1, 10, 0, 0, tzinfo=datetime.timezone.utc
+        )
+        test_date = date(2024, 1, 10)
+
+        assert len(metrics) == 2
+        assert metrics[0].id == "1"
+        assert metrics[0].dimension_id == "test-dimension-id-2"
+        assert metrics[0].company_id == "1"
+        assert metrics[0].time == test_datetime
+        assert metrics[0].date == test_date
+        assert metrics[0].day == 19732
+        assert metrics[0].value == 100
+        assert metrics[0].timestamp == test_datetime
+        assert metrics[0].model == "Company"
+        assert metrics[0].parent_id == "1"
+        assert metrics[0].company_name == "Acme"
+        assert metrics[1].id == "2"
+        assert metrics[1].dimension_id == "test-dimension-id-2"
+        assert metrics[1].company_id == "1"
+        assert metrics[1].time == test_datetime
+        assert metrics[1].date == test_date
+        assert metrics[1].day == 19732
+        assert metrics[1].value == 100
+        assert metrics[1].timestamp == test_datetime
+        assert metrics[1].model == "Asset"
+        assert metrics[1].parent_id == "1a"
+        assert metrics[1].company_name == "Acme"

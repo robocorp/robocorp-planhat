@@ -20,13 +20,13 @@ from .errors import (
     PlanhatRateLimitError,
     PlanhatServerError,
 )
-from .types import PlanhatObject
+from .types import PlanhatBaseObject
 
 STATUS_CODES_TO_RETRY = [429, 500, 504]
 BASE_PH_URL = "https://api.planhat.com"
 BASE_PH_ANALYTICS_URL = "https://analytics.planhat.com"
 
-PlanhatDataType = PlanhatObject | list[PlanhatObject]
+PlanhatDataType = PlanhatBaseObject | list[PlanhatBaseObject]
 JsonDictType = dict[str, Any]
 JsonListType = list[JsonDictType]
 JsonType = JsonDictType | JsonListType
@@ -346,9 +346,10 @@ class PlanhatSession:
         Args:
             url: The URL to make the request to. If the URL does not start with
                 `http`, the URL is appended to the Planhat API host.
-            params: The query parameters to use.
+            data: The data to send in the request body.
+            json: The Planhat data to send in the request body as JSON or as
+                an object which supports the json.dumps method.
             headers: The headers to use.
-            kwargs: Additional keyword arguments to pass to the request.
 
         Returns:
             The response from the Planhat API.
@@ -379,9 +380,10 @@ class PlanhatSession:
         Args:
             url: The URL to make the request to. If the URL does not start with
                 `http`, the URL is appended to the Planhat API host.
-            params: The query parameters to use.
+            data: The data to send in the request body.
+            json: The Planhat data to send in the request body as JSON or as
+                an object which supports the json.dumps method.
             headers: The headers to use.
-            kwargs: Additional keyword arguments to pass to the request.
 
         Returns:
             The response from the Planhat API.
@@ -412,9 +414,10 @@ class PlanhatSession:
         Args:
             url: The URL to make the request to. If the URL does not start with
                 `http`, the URL is appended to the Planhat API host.
-            params: The query parameters to use.
+            data: The data to send in the request body.
+            json: The Planhat data to send in the request body as JSON or as
+                an object which supports the json.dumps method.
             headers: The headers to use.
-            kwargs: Additional keyword arguments to pass to the request.
 
         Returns:
             The response from the Planhat API.
@@ -444,9 +447,10 @@ class PlanhatSession:
         Args:
             url: The URL to make the request to. If the URL does not start with
                 `http`, the URL is appended to the Planhat API host.
-            params: The query parameters to use.
+            data: The data to send in the request body.
+            json: The Planhat data to send in the request body as JSON or as
+                an object which supports the json.dumps method.
             headers: The headers to use.
-            kwargs: Additional keyword arguments to pass to the request.
 
         Returns:
             The response from the Planhat API.

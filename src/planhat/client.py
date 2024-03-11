@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Type
 
 import requests
@@ -224,8 +225,8 @@ class PlanhatClient:
         return out
 
     def _resp_as_singleton(
-        self, planhat_response: types.P | types.PlanhatObjectList[types.P]
-    ) -> types.P:
+        self, planhat_response: types.MO | types.PlanhatObjectList[types.MO]
+    ) -> types.MO:
         """
         Validates that the response is not a list of Planhat Objects and
         returns it, otherwise raises a ValueError.
@@ -246,8 +247,8 @@ class PlanhatClient:
         return planhat_response
 
     def _resp_as_list(
-        self, planhat_response: types.P | types.PlanhatObjectList[types.P]
-    ) -> types.PlanhatObjectList[types.P]:
+        self, planhat_response: types.MO | types.PlanhatObjectList[types.MO]
+    ) -> types.PlanhatObjectList[types.MO]:
         """
         Validates that the response is a list and returns it, if
         a single object is returned, it is wrapped in a list, otherwise
@@ -271,8 +272,8 @@ class PlanhatClient:
             raise ValueError(f"Unexpected response: {planhat_response}")
 
     def _get_from_cache(
-        self, object_type: type[types.P]
-    ) -> types.PlanhatObjectList[types.P]:
+        self, object_type: type[types.MO]
+    ) -> types.PlanhatObjectList[types.MO]:
         """Returns the list of objects from the cache, if available."""
         if object_type not in self._cache:
             object_list = self._get_objects_via_api(object_type)
@@ -296,7 +297,7 @@ class PlanhatClient:
                     self._get_from_cache(object_type).append(obj)
 
     def update_objects(
-        self, payload: types.PlanhatObjectList[types.P]
+        self, payload: types.PlanhatObjectList[types.MO]
     ) -> dict | list[dict]:
         """
         Bulk upserts a list of objects to Planhat.
@@ -380,10 +381,10 @@ class PlanhatClient:
 
     def _get_objects_via_api(
         self,
-        object_type: Type[types.P],
+        object_type: Type[types.MO],
         company_ids: list[str] | None = None,
         properties: list[str] | None = None,
-    ) -> types.PlanhatObjectList[types.P]:
+    ) -> types.PlanhatObjectList[types.MO]:
         """
         Gets a list of planhat objects of `object_type` using the Planhat API.
         This method does not respect the `use_caching` setting and always retrieves
@@ -422,7 +423,7 @@ class PlanhatClient:
                 current_batch.append(company_id)
             company_ids_batches.append(current_batch)
             log.debug(f"Company IDs batches: {company_ids_batches}")
-            full_obj_list: types.PlanhatObjectList[types.P] = types.PlanhatObjectList()
+            full_obj_list: types.PlanhatObjectList[types.MO] = types.PlanhatObjectList()
             for company_ids_batch in company_ids_batches:
                 current_obj_list = self._get_objects_via_api(
                     object_type=object_type,
@@ -557,10 +558,10 @@ class PlanhatClient:
 
     def get_object_by_id(
         self,
-        object_type: Type[types.P],
+        object_type: Type[types.MO],
         id: str,
         id_type: types.PlanhatIdType | None = None,
-    ) -> types.P:
+    ) -> types.MO:
         """
         Gets a planhat object of `object_type` using the provided `id`.
 
@@ -634,8 +635,8 @@ class PlanhatClient:
 
     def update_object(
         self,
-        payload: types.PlanhatObject,
-    ) -> types.PlanhatObject:
+        payload: types.MO,
+    ) -> types.MO:
         """
         Updates a Planhat object.
 
@@ -653,9 +654,9 @@ class PlanhatClient:
                 used in the order listed and only the first one found is
                 used.
 
-                - `id`
-                - `source_id`
-                - `external_id`
+                - id
+                - source_id
+                - external_id
 
         Returns:
             The updated PlanhatObject.
@@ -733,8 +734,8 @@ class PlanhatClient:
         return all_companies
 
     def find_missing_objects(
-        self, objects: types.PlanhatObjectList[types.P]
-    ) -> types.PlanhatObjectList[types.P]:
+        self, objects: types.PlanhatObjectList[types.MO]
+    ) -> types.PlanhatObjectList[types.MO]:
         """
         Finds objects missing in Planhat from the list of objects provided.
 
@@ -761,9 +762,87 @@ class PlanhatClient:
             client.create_objects(missing_companies)
             ```
         """
-        missing_objects = types.PlanhatObjectList[types.P]()
+        missing_objects = types.PlanhatObjectList[types.MO]()
         for obj in objects:
             all_objects_in_planhat = self._get_from_cache(type(obj))
             if not all_objects_in_planhat.is_obj_in_list(obj):
                 missing_objects.append(obj)
         return missing_objects
+
+    def get_dimension_data(
+        self,
+        company_id: str | None = None,
+        dimension_name: str | None = None,
+        from_date: int | date | None = None,
+        to_date: int | date | None = None,
+        limit_length: int | None = None,
+    ) -> types.MetricList:
+        """
+        Gets dimension data from Planhat.
+
+        Unles you provide `limit_length`, this method will paginate
+        through all the data available.
+
+        Args:
+            company_id: The ID of the company to get dimension data for.
+            dimension_name: The name of the dimension to get data for.
+            from_day: The start day for the data as the number of days
+                since the epoch (1970-01-01) or a date object.
+            to_day: The end day for the data as the number of days
+                since the epoch (1970-01-01) or a date object.
+            limit_length: The maximum number of data points to return.
+
+        Returns:
+            A list of dimension data as a MetricList.
+
+        Example:
+
+            ```python
+            # Get dimension data for a company
+            dimension_data = client.get_dimension_data(
+                company_id="1",
+                dimension_name="installs",
+                from_day=19780,
+                to_day=19784,
+            )
+            ```
+        """
+        params = {}
+        if company_id:
+            params["cId"] = company_id
+        if dimension_name:
+            params["dimid"] = dimension_name
+        if from_date:
+            if isinstance(from_date, date):
+                from_date = (from_date - date(1970, 1, 1)).days
+            params["from"] = from_date
+        if to_date:
+            if isinstance(to_date, date):
+                to_date = (to_date - date(1970, 1, 1)).days
+            params["to"] = to_date
+
+        dimension_data = types.MetricList()
+        offset = 0
+        if limit_length and limit_length < 2000:
+            limit = limit_length
+        else:
+            limit = 2000
+        while True:
+            remaining = limit_length - len(dimension_data) if limit_length else None
+            if remaining and remaining < limit:
+                limit = remaining
+            params["limit"] = limit
+            params["offset"] = offset
+            response = self.session.get(url="/dimensiondata", params=params)
+            fetched_metrics = types.Metric.from_response(response)
+            if len(fetched_metrics) == 0:
+                break
+            dimension_data.extend(fetched_metrics)
+            if (
+                len(fetched_metrics) < limit
+                or limit_length
+                and len(fetched_metrics) >= limit_length
+            ):
+                break
+            offset += limit
+        return dimension_data
